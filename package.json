@@ -1,0 +1,31 @@
+{
+  "name": "audioduck-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Speech-aware automatic music ducking for creators.",
+  "scripts": {
+    "dev": "concurrently -k \"vite --config vite.config.ts --port 5173\" \"node server/index.mjs\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "node server/index.mjs",
+    "test": "node --test --test-isolation=none tests/*.test.mjs",
+    "verify": "node scripts/verify-ui.mjs",
+    "check:api": "node scripts/check-api.mjs",
+    "sample": "node scripts/make-sample.mjs"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.30.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.0",
+    "playwright-core": "^1.56.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0"
+  }
+}
