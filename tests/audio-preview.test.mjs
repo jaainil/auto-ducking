@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PreviewAudio } from '../src/lib/audioEngine.ts';
 
-// Firefox retains an already-started value curve when cancellation is after
-// its start. A new event inside that curve throws InvalidStateError.
+// Reproduce the reported Firefox behavior: cancellation time is clamped to
+// the current clock, leaving the old curve present. Inserting into it throws.
 class GainParam {
   value = 1;
   events = [];

@@ -81,7 +81,7 @@ try {
  }
  assert.equal(await page.getByText('The audio preview stopped.',{exact:false}).count(),0);
  assert.deepEqual(errors,[]);
- await page.waitForFunction(()=>document.querySelector('.save-state')?.textContent?.trim()==='Saved');
+ await page.waitForFunction(()=>document.querySelector('.save-state')?.textContent?.trim()==='Saved locally');
  await page.goto(origin);
  console.log('Editor passed: Original/Ducked clicks, live numeric/keyboard/drag trimming, replay, saved edits and desktop/mobile layouts.');
 } finally {
