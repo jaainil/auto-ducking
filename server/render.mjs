@@ -1,6 +1,7 @@
 import { mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { projectPath, downloadFilename } from "./storage.mjs";
+import { resolveMusicTrim } from "../shared/music.js";
 import {
   probeMedia,
   runFfmpeg,
@@ -41,6 +42,7 @@ export async function renderProject(project, options, context = {}) {
   await mkdir(exportsDir, { recursive: true });
 
   const automation = join(dir, `automation-${options.jobId}.wav`);
+  const selectedMusic = join(dir, `music-selection-${options.jobId}.wav`);
   const output = join(exportsDir, `render-${options.jobId}.${format.extension}`);
 
   const progress = (percent, stage) => {
@@ -54,7 +56,17 @@ export async function renderProject(project, options, context = {}) {
 
     const videoPath = projectPath(project.id, project.media.video);
     const voicePath = projectPath(project.id, project.media.voiceWav);
-    const musicPath = projectPath(project.id, project.media.music);
+    let musicPath = projectPath(project.id, project.media.music);
+    const sourceDuration = project.source?.music?.duration ?? (await probeMedia(musicPath)).duration;
+    const trim = resolveMusicTrim(project.settings, sourceDuration);
+    if (trim.start > 0 || trim.end < sourceDuration - 0.0001) {
+      progress(5, "Preparing selected music");
+      await runFfmpeg([
+        "-i", musicPath, "-ss", String(trim.start), "-t", String(trim.length),
+        "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", selectedMusic,
+      ], { onSpawn: child => context.onChild?.(child) });
+      musicPath = selectedMusic;
+    }
 
     const includeVideo = options.format === "mp4";
     const voiceIndex = includeVideo ? 1 : 0;
@@ -221,6 +233,7 @@ export async function renderProject(project, options, context = {}) {
     throw error;
   } finally {
     await rm(automation, { force: true });
+    await rm(selectedMusic, { force: true });
     context.onChild?.(null);
   }
 }

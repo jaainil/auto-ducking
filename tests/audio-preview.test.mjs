@@ -24,12 +24,17 @@ class GainParam {
 function player() {
   const engine = new PreviewAudio();
   const gain = new GainParam();
-  const context = {currentTime:1,resume:async()=>{},createBufferSource:()=>({connect(){},start(){},stop(){},disconnect(){}})};
+  const sources = [];
+  const context = {currentTime:1,resume:async()=>{},createBufferSource:()=>{
+    const source = {connect(){},start(...args){this.started=args;},stop(){this.stopped=true;},disconnect(){}};
+    sources.push(source);
+    return source;
+  }};
   // TypeScript private fields compile to ordinary properties; exercise the real
   // public transport and automation with strict AudioParam scheduling semantics.
   Object.assign(engine,{context,musicGain:{gain},voiceGain:{},voiceBuffer:{duration:10},musicBuffer:{duration:3},duration:10});
   engine.setAutomation(new Float32Array(2000).fill(.25),-12,false);
-  return {engine,gain,context};
+  return {engine,gain,context,sources};
 }
 test('changing ducking settings and bypass mid-play removes the active curve', async () => {
   const {engine,gain,context}=player();
@@ -50,4 +55,24 @@ test('pause, seek and replay discard stale gain curves', async () => {
   await assert.doesNotReject(()=>engine.play());
   context.currentTime=3;
   assert.doesNotThrow(()=>engine.setAutomation(new Float32Array(2000).fill(.25),-12,false));
+});
+
+test('trimmed preview loops and seeks inside the selection without restarting dialogue', async () => {
+  const {engine,context,sources}=player();
+  const channel = new Float32Array(48000);
+  channel.fill(.5,16000,32000);
+  engine.musicBuffer = {duration:3,sampleRate:16000,getChannelData:()=>channel};
+  await engine.play();
+  context.currentTime=2;
+  const musicPeaks = engine.setMusicTrim(1,2);
+  assert.equal(sources.length,3, 'only the music should restart');
+  assert.equal(sources[0].stopped,undefined, 'dialogue continues');
+  assert.equal(sources[1].stopped,true);
+  assert.equal(sources[2].loopStart,1);
+  assert.equal(sources[2].loopEnd,2);
+  assert.ok(sources[2].started[1]>=1 && sources[2].started[1]<2);
+  assert.ok(musicPeaks.max.every(value=>value===.5), 'waveform repeats the chosen section across the full project');
+  engine.pause();
+  await engine.play(7.5);
+  assert.equal(sources.at(-1).started[1],1.5);
 });

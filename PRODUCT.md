@@ -35,6 +35,7 @@ Local-first for the MVP: uploaded media, extracted audio, projects, and renders 
 - Generate smooth dB-domain automation with reduction, look-ahead, fade-down, hold, release, and base music level controls.
 - Edit speech regions directly on the timeline: move, resize, add, delete, enable/disable, and reset to detection.
 - Live Web Audio preview synchronized to the video, with a ducked/bypassed before-after comparison.
+- Trim the uploaded music using waveform handles or exact seconds. The selected source section loops/cuts to video duration at original speed and pitch, with consistent preview, seeking, timeline waveform, saved settings and native export. Existing projects use the full track by default.
 - Render MP4 (H.264 copy when compatible, transcode fallback; AAC 192 kbps), WAV, and MP3 through native FFmpeg, with progress, cancellation, output verification, and cleanup.
 - Optional single-pass EBU R128 loudness normalization for export.
 - Not in this version: cloud storage, accounts, collaboration, saved presets, batch processing, public API, multiple music beds, AI source separation, or speech-to-text.

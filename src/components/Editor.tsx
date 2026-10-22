@@ -43,6 +43,8 @@ import type {
 } from "../types";
 import { Brand } from "./Brand";
 import { Timeline } from "./Timeline";
+import { MusicTrim } from "./MusicTrim";
+import { resolveMusicTrim } from "../../shared/music.js";
 import {
   AlertIcon,
   ArrowRightIcon,
@@ -127,6 +129,8 @@ export function Editor({
   const [segments, setSegments] = useState<Segment[]>([]);
   const [title, setTitle] = useState("");
   const [peaks, setPeaks] = useState<Peaks | null>(null);
+  const [sourceMusic, setSourceMusic] = useState<Peaks["music"] | null>(null);
+  const [musicDuration, setMusicDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [bypass, setBypass] = useState(false);
@@ -211,6 +215,7 @@ export function Editor({
     setSettings(null);
     setSegments([]);
     setPeaks(null);
+    setSourceMusic(null);
     setPlaying(false);
     setCurrentTime(0);
     setSelectedId(null);
@@ -269,6 +274,8 @@ export function Editor({
       .then((result) => {
         if (cancelled) return;
         setPeaks(result.peaks);
+        setSourceMusic(result.sourceMusic);
+        setMusicDuration(result.musicDuration);
         setAudioLoading(false);
       })
       .catch((error) => {
@@ -298,6 +305,12 @@ export function Editor({
       bypass,
     );
   }, [envelope, settings?.baseMusicDb, bypass, audioToken]);
+
+  useEffect(() => {
+    if (audioLoading || !settings) return;
+    const music = engineRef.current?.setMusicTrim(settings.musicStartSeconds, settings.musicEndSeconds);
+    if (music) setPeaks(current => current ? { ...current, music } : current);
+  }, [settings?.musicStartSeconds, settings?.musicEndSeconds, audioLoading, audioToken]);
 
   useEffect(() => {
     document.title = project
@@ -1050,6 +1063,16 @@ export function Editor({
               )}
             </section>
 
+            <MusicTrim
+              {...resolveMusicTrim(settings, musicDuration || project.source.music.duration)}
+              duration={musicDuration || project.source.music.duration}
+              videoDuration={duration}
+              peaks={sourceMusic}
+              filename={project.source.music.originalName}
+              loading={audioLoading || Boolean(audioError)}
+              onChange={(start, end) => setSettings(current => current ? { ...current, musicStartSeconds: start, musicEndSeconds: end } : current)}
+            />
+
             <section className="timeline-card" aria-labelledby="timeline-title">
               <div className="timeline-head">
                 <div>
@@ -1397,7 +1420,7 @@ export function Editor({
                   <button
                     type="button"
                     className="button quiet small"
-                    onClick={() => setSettings({ ...DEFAULT_SETTINGS })}
+                    onClick={() => setSettings(current => ({ ...DEFAULT_SETTINGS, musicStartSeconds: current?.musicStartSeconds ?? 0, musicEndSeconds: current?.musicEndSeconds ?? 0 }))}
                   >
                     <ResetIcon size={13} />
                     Reset settings

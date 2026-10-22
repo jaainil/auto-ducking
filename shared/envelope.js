@@ -24,6 +24,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   minSpeechMs: 160,
   minSilenceMs: 240,
   padMs: 60,
+  musicStartSeconds: 0,
+  musicEndSeconds: 0,
 });
 
 export const LIMITS = Object.freeze({

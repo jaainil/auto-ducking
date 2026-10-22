@@ -17,6 +17,8 @@ If uploads return 404 while `/api/projects` returns HTML, the running Vite serve
 
 Upload a video and background music; optionally add a separate voiceover. Create the mix, preview the result, adjust reduction/fades/sensitivity, edit speech intervals, and export MP4, WAV, or MP3. Music loops to fit the video. The existing mixed audio in a video cannot be separated; ducking affects only the added music. This MVP currently requires a video, including for audio-only exports.
 
+In the editor, **Trim music** displays the full uploaded song. Drag either blue handle, use the arrow keys (Shift for one-second steps), or enter exact start/end seconds. **Match video length** sets the selection end from the current start; when there is less music available, the selection loops to fill the video. **Use full track** restores the whole song. Speed and pitch stay unchanged. The timeline waveform, live playback, seeking, autosave and all export formats use the same selection. Existing projects default to the full song. Restart `npm run dev` after updating the backend to enable saving and exporting trims.
+
 Files and project JSON are stored under `data/` (`DATA_DIR` overrides this). The service binds to 127.0.0.1 by default. Keep this as a local app; accounts, cloud storage and multi-user access are outside this MVP.
 
 ## Verify

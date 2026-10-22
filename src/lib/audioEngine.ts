@@ -1,4 +1,5 @@
 import { dbToGain, envelopeAt } from "../../shared/envelope.js";
+import { resolveMusicTrim, musicOffsetAt } from "../../shared/music.js";
 import type { Peaks } from "../types";
 
 const PEAK_BUCKETS = 2200;
@@ -8,6 +9,8 @@ function peaksFor(
   duration: number,
   buckets: number,
   loop: boolean,
+  trimStart = 0,
+  trimEnd = buffer.duration,
 ): Peaks["voice"] {
   const channel = buffer.getChannelData(0);
   const min = new Float32Array(buckets);
@@ -15,13 +18,12 @@ function peaksFor(
   const secondsPerBucket = duration / buckets;
   const samplesPerBucket = secondsPerBucket * buffer.sampleRate;
   const stride = Math.max(1, Math.floor(samplesPerBucket / 140));
+  const first = Math.round(trimStart * buffer.sampleRate);
+  const loopLength = Math.max(1, Math.round((trimEnd - trimStart) * buffer.sampleRate));
 
   for (let bucket = 0; bucket < buckets; bucket += 1) {
     const start = Math.floor(bucket * samplesPerBucket);
-    const end = Math.min(
-      channel.length,
-      Math.ceil((bucket + 1) * samplesPerBucket),
-    );
+    const end = Math.ceil((bucket + 1) * samplesPerBucket);
     let low = 0;
     let high = 0;
 
@@ -34,12 +36,12 @@ function peaksFor(
     if (loop && channel.length > 0) {
       const span = Math.max(1, end - start);
       for (let offset = 0; offset < span; offset += stride) {
-        const value = channel[(start + offset) % channel.length] ?? 0;
+        const value = channel[first + (start + offset) % loopLength] ?? 0;
         if (value < low) low = value;
         if (value > high) high = value;
       }
     } else {
-      for (let index = start; index < end; index += stride) {
+      for (let index = start; index < Math.min(end, channel.length); index += stride) {
         const value = channel[index] ?? 0;
         if (value < low) low = value;
         if (value > high) high = value;
@@ -57,6 +59,7 @@ export interface AudioLoadResult {
   peaks: Peaks;
   voiceDuration: number;
   musicDuration: number;
+  sourceMusic: Peaks["music"];
 }
 
 export class PreviewAudio {
@@ -74,6 +77,7 @@ export class PreviewAudio {
   private baseDb = -12;
   private bypass = false;
   private duration = 0;
+  private musicTrim = { start: 0, end: 0, length: 0 };
 
   private playing = false;
   private startedAt = 0;
@@ -151,10 +155,12 @@ export class PreviewAudio {
 
     this.voiceBuffer = voiceBuffer;
     this.musicBuffer = musicBuffer;
+    this.musicTrim = resolveMusicTrim({}, musicBuffer.duration);
 
     return {
       voiceDuration: voiceBuffer.duration,
       musicDuration: musicBuffer.duration,
+      sourceMusic: peaksFor(musicBuffer, musicBuffer.duration, PEAK_BUCKETS, false),
       peaks: {
         buckets: PEAK_BUCKETS,
         voice: peaksFor(voiceBuffer, duration, PEAK_BUCKETS, false),
@@ -177,6 +183,34 @@ export class PreviewAudio {
     else if (this.musicGain) {
       this.musicGain.gain.value = this.gainAt(this.pausedAt);
     }
+  }
+
+  setMusicTrim(start: number, end: number) {
+    if (!this.musicBuffer) return null;
+    const trim = resolveMusicTrim({ musicStartSeconds: start, musicEndSeconds: end }, this.musicBuffer.duration);
+    const changed = trim.start !== this.musicTrim.start || trim.end !== this.musicTrim.end;
+    this.musicTrim = trim;
+    if (changed && this.playing && this.context) {
+      if (this.musicSource) {
+        try { this.musicSource.stop(); } catch { /* already stopped */ }
+        this.musicSource.disconnect();
+      }
+      this.startMusic(Math.max(this.context.currentTime, this.startedAt), this.currentTime);
+    }
+    return peaksFor(this.musicBuffer, this.duration, PEAK_BUCKETS, true, trim.start, trim.end);
+  }
+
+  private startMusic(when: number, offset: number) {
+    if (!this.context || !this.musicBuffer || !this.musicGain) return;
+    const trim = this.musicTrim.length > 0 ? this.musicTrim : resolveMusicTrim({}, this.musicBuffer.duration);
+    const music = this.context.createBufferSource();
+    music.buffer = this.musicBuffer;
+    music.loop = true;
+    music.loopStart = trim.start;
+    music.loopEnd = trim.end;
+    music.connect(this.musicGain);
+    music.start(when, musicOffsetAt(offset, trim));
+    this.musicSource = music;
   }
 
   private gainAt(time: number) {
@@ -232,12 +266,7 @@ export class PreviewAudio {
     }
     this.voiceSource = voice;
 
-    const music = context.createBufferSource();
-    music.buffer = this.musicBuffer;
-    music.loop = true;
-    music.connect(this.musicGain!);
-    music.start(when, offset % this.musicBuffer.duration);
-    this.musicSource = music;
+    this.startMusic(when, offset);
 
     const gain = this.musicGain!.gain;
     gain.cancelScheduledValues(0);

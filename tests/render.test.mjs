@@ -48,6 +48,18 @@ test('native media pipeline: detection, exact ducking, MP4/WAV/MP3, normalizatio
       await renderProject(project,{format:'wav',jobId:'normalized',normalize:true});
       assert.ok(!(await readdir(dir)).some(name => name.startsWith('automation-')));
     });
+    await t.test('exports only the selected music section, looping it to fit', async () => {
+      await runFfmpeg(['-f','lavfi','-i','aevalsrc=if(between(t\\,1\\,2)\\,0.1*sin(2*PI*440*t)\\,0):s=48000:d=3',join(dir,'trim-song.wav')]);
+      const selected = {...project, source:{music:{duration:3}}, media:{...project.media,music:'trim-song.wav'}, settings:{...project.settings,reductionDb:0,musicStartSeconds:1,musicEndSeconds:2}};
+      const result = await renderProject(selected,{format:'wav',jobId:'trimmed'});
+      const samples = await decodePcm16k(join(dir,'exports',result.file));
+      for (const start of [.1,1.1,2.1,3.1]) {
+        const window = samples.slice(Math.round(start*16000),Math.round((start+.3)*16000));
+        const rms = Math.sqrt(window.reduce((sum,value)=>sum+value*value,0)/window.length);
+        assert.ok(rms>.04, `selection should contain music at ${start}s, got RMS ${rms}`);
+      }
+      assert.ok(!(await readdir(dir)).some(name=>name.startsWith('music-selection-')));
+    });
     await t.test('honors cancellation before processing', async () => {
       await assert.rejects(renderProject(project,{format:'wav',jobId:'cancelled'},{cancelled:()=>true}), RenderCancelled);
     });

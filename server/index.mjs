@@ -36,6 +36,7 @@ import {
   probeMedia,
 } from "./media.mjs";
 import { detectSpeech, loadVoiceDetector } from "./vad.mjs";
+import { resolveMusicTrim } from "../shared/music.js";
 import {
   DEFAULT_SETTINGS,
   LIMITS,
@@ -71,6 +72,8 @@ const SETTINGS_SCHEMA = {
   minSpeechMs: [60, 600],
   minSilenceMs: [80, 1200],
   padMs: [0, 300],
+  musicStartSeconds: [0, 1200],
+  musicEndSeconds: [0, 1200],
 };
 
 function log(...args) {
@@ -301,6 +304,7 @@ async function receiveUpload(req, res, role) {
 function publicProject(project) {
   return {
     ...project,
+    settings: { ...DEFAULT_SETTINGS, ...project.settings },
     mediaUrls: {
       video: mediaUrl(project.id, project.media.video),
       voicePreview: mediaUrl(project.id, project.media.voicePreview),
@@ -611,6 +615,9 @@ async function handleApi(req, res, url) {
     }
     if (body.settings && typeof body.settings === "object") {
       project.settings = sanitizeSettings(body.settings, project.settings);
+      const trim = resolveMusicTrim(project.settings, project.source.music.duration);
+      project.settings.musicStartSeconds = trim.start;
+      project.settings.musicEndSeconds = trim.end;
     }
     if (Array.isArray(body.segments)) {
       project.segments = sanitizeSegments(body.segments, project.duration);

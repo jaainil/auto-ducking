@@ -19,6 +19,8 @@ export interface DuckingSettings {
   minSpeechMs: number;
   minSilenceMs: number;
   padMs: number;
+  musicStartSeconds: number;
+  musicEndSeconds: number;
 }
 
 export interface VadData {

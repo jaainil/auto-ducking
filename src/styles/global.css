@@ -2762,3 +2762,38 @@ figure {
   line-height: 1.6;
   color: var(--tertiary);
 }
+
+/* Music selection follows the same quiet chrome as the editor timeline. */
+.music-trim {
+  border: 1px solid var(--neutral);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  min-width: 0;
+}
+.music-trim-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.music-trim-heading > div { min-width: 0; }
+.music-trim-heading h2 { font-size: 18px; font-weight: 500; }
+.music-trim-heading p { color: var(--tertiary); font-size: 12.6px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-trim-heading button { flex-shrink: 0; }
+.music-trim-help { font-size: 14.4px; line-height: 1.6; color: var(--tertiary); margin-top: 14px; margin-bottom: 22px; }
+.music-trim-track { position: relative; height: 88px; margin: 0 10px; user-select: none; }
+.music-trim-track svg { display: block; width: 100%; height: 100%; border-radius: 4px; }
+.music-trim-handle { position: absolute; top: 0; bottom: 0; width: 22px; transform: translateX(-50%); border: 0; border-radius: 4px; background: var(--primary); color: white; cursor: ew-resize; touch-action: none; display: grid; place-items: center; }
+.music-trim-handle span { display: block; width: 4px; height: 22px; border-left: 1px solid currentColor; border-right: 1px solid currentColor; }
+.music-trim-handle:hover { background: #1d4ed8; }
+.music-trim-handle:disabled { cursor: wait; background: var(--tertiary); }
+.music-trim-handle:focus-visible { outline-offset: 4px; }
+.music-trim-loading { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.6px; color: var(--tertiary); background: #ffffffd9; pointer-events: none; }
+.music-trim-ruler { display: flex; justify-content: space-between; margin: 8px 10px 18px; font-size: 11px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
+.music-trim-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; }
+.music-trim-controls label { display: block; font-size: 12.6px; color: var(--on-surface); flex: 1 1 100px; }
+.music-trim-controls label span { color: var(--tertiary); }
+.music-trim-controls input { display: block; width: 100%; border: 1px solid var(--neutral); border-radius: var(--radius-md); padding: 9px 12px; margin-top: 6px; background: var(--surface); font-size: 14.4px; font-variant-numeric: tabular-nums; }
+.music-trim-controls input:focus { border-color: var(--primary); }
+.music-trim-summary { margin-top: 18px; font-size: 12.6px; line-height: 1.7; display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--tertiary); }
+.music-trim-summary strong { color: var(--primary); font-weight: 500; }
+@media (max-width: 600px) {
+  .music-trim { padding: 18px; }
+  .music-trim-controls > button { width: 100%; justify-content: center; }
+  .music-trim-help { font-size: 12.6px; }
+}
