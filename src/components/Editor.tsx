@@ -176,14 +176,22 @@ export function Editor({
 
   const duration = project?.duration ?? 0;
 
+  const recoverPreview = useCallback(() => {
+    const time = engineRef.current?.pause() ?? currentTimeRef.current;
+    videoRef.current?.pause();
+    setPlaying(false);
+    setCurrentTime(time);
+    setPlayError("The audio preview stopped. Press Play to try again; your edits are still here.");
+  }, []);
+
   currentTimeRef.current = currentTime;
   playingRef.current = playing;
   durationRef.current = duration;
 
   const envelope = useMemo(() => {
-    if (!settings || !project) return new Float32Array([1]);
-    return buildEnvelope(segments, settings, project.duration, ENVELOPE_RATE);
-  }, [settings, segments, project]);
+    if (!settings || duration <= 0) return new Float32Array([1]);
+    return buildEnvelope(segments, settings, duration, ENVELOPE_RATE);
+  }, [segments, duration, settings?.reductionDb, settings?.lookAheadMs, settings?.fadeDownMs, settings?.holdMs, settings?.releaseMs]);
 
   const currentKey = useMemo(
     () => (settings ? keyFor(settings, segments) : ""),
@@ -299,18 +307,26 @@ export function Editor({
   }, [project?.id, audioToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    engineRef.current?.setAutomation(
-      envelope,
-      settings?.baseMusicDb ?? -12,
-      bypass,
-    );
-  }, [envelope, settings?.baseMusicDb, bypass, audioToken]);
+    try {
+      engineRef.current?.setAutomation(
+        envelope,
+        settings?.baseMusicDb ?? -12,
+        bypass,
+      );
+    } catch {
+      recoverPreview();
+    }
+  }, [envelope, settings?.baseMusicDb, bypass, audioToken, recoverPreview]);
 
   useEffect(() => {
     if (audioLoading || !settings) return;
-    const music = engineRef.current?.setMusicTrim(settings.musicStartSeconds, settings.musicEndSeconds);
-    if (music) setPeaks(current => current ? { ...current, music } : current);
-  }, [settings?.musicStartSeconds, settings?.musicEndSeconds, audioLoading, audioToken]);
+    try {
+      const music = engineRef.current?.setMusicTrim(settings.musicStartSeconds, settings.musicEndSeconds);
+      if (music) setPeaks(current => current ? { ...current, music } : current);
+    } catch {
+      recoverPreview();
+    }
+  }, [settings?.musicStartSeconds, settings?.musicEndSeconds, audioLoading, audioToken, recoverPreview]);
 
   useEffect(() => {
     document.title = project
@@ -387,6 +403,8 @@ export function Editor({
         });
       }
     } catch (error) {
+      engine.pause();
+      videoRef.current?.pause();
       setPlaying(false);
       setPlayError(
         error instanceof Error

@@ -97,7 +97,7 @@ export class PreviewAudio {
     if (!this.playing || !this.context) return this.pausedAt;
     return Math.min(
       this.duration,
-      Math.max(0, this.startOffset + (this.context.currentTime - this.startedAt)),
+      this.startOffset + Math.max(0, this.context.currentTime - this.startedAt),
     );
   }
 
@@ -180,9 +180,6 @@ export class PreviewAudio {
     this.bypass = bypass;
     this.envelopeRate = rate;
     if (this.playing) this.reschedule();
-    else if (this.musicGain) {
-      this.musicGain.gain.value = this.gainAt(this.pausedAt);
-    }
   }
 
   setMusicTrim(start: number, end: number) {
@@ -219,22 +216,40 @@ export class PreviewAudio {
     return base * envelopeAt(this.envelope, this.envelopeRate, time);
   }
 
-  private scheduleCurve(offset: number, when: number) {
-    if (!this.musicGain) return;
-    const gain = this.musicGain.gain;
+  private scheduleCurve(gain: AudioParam, offset: number, when: number, fromGain?: number) {
     const remaining = this.duration - offset;
 
     if (remaining <= 0.01) {
-      gain.setValueAtTime(this.gainAt(offset), when);
+      gain.value = this.gainAt(offset);
       return;
     }
 
-    const frames = Math.max(2, Math.ceil(remaining * this.envelopeRate));
+    const frames = Math.max(2, Math.ceil(remaining * this.envelopeRate) + 1);
     const curve = new Float32Array(frames);
     for (let index = 0; index < frames; index += 1) {
-      curve[index] = this.gainAt(offset + index / this.envelopeRate);
+      const elapsed = index / (frames - 1) * remaining;
+      const target = this.gainAt(offset + elapsed);
+      const blend = Math.min(1, elapsed / 0.045);
+      curve[index] = fromGain === undefined ? target : fromGain + (target - fromGain) * blend;
     }
     gain.setValueCurveAtTime(curve, when, remaining);
+  }
+
+  private replaceMusicGain(offset: number, when: number, smooth = false) {
+    if (!this.context) return;
+    const previous = this.musicGain;
+    const next = this.context.createGain();
+    next.gain.value = this.gainAt(offset);
+    // Each AudioParam gets exactly one curve. Never insert events into, or
+    // depend on browser cancellation of, an already-running value curve.
+    this.scheduleCurve(next.gain, offset, when, smooth ? previous?.gain.value : undefined);
+    next.connect(this.limiter ?? this.context.destination);
+    if (this.musicSource) {
+      this.musicSource.disconnect();
+      this.musicSource.connect(next);
+    }
+    previous?.disconnect();
+    this.musicGain = next;
   }
 
   async play(from = this.pausedAt) {
@@ -257,6 +272,7 @@ export class PreviewAudio {
     const when = context.currentTime + 0.07;
     this.startedAt = when;
     this.startOffset = offset;
+    this.replaceMusicGain(offset, when);
 
     const voice = context.createBufferSource();
     voice.buffer = this.voiceBuffer;
@@ -268,10 +284,6 @@ export class PreviewAudio {
 
     this.startMusic(when, offset);
 
-    const gain = this.musicGain!.gain;
-    gain.cancelScheduledValues(0);
-    gain.setValueAtTime(this.gainAt(offset), when);
-    this.scheduleCurve(offset, when);
   }
 
   pause() {
@@ -281,10 +293,6 @@ export class PreviewAudio {
     this.stopSources();
     this.playing = false;
     this.pausedAt = time;
-    if (this.musicGain) {
-      this.musicGain.gain.cancelScheduledValues(0);
-      this.musicGain.gain.value = this.gainAt(time);
-    }
     return time;
   }
 
@@ -294,28 +302,14 @@ export class PreviewAudio {
       void this.play(next);
     } else {
       this.pausedAt = next;
-      if (this.musicGain) {
-        this.musicGain.gain.cancelScheduledValues(0);
-        this.musicGain.gain.value = this.gainAt(next);
-      }
     }
   }
 
   private reschedule() {
     if (!this.context || !this.musicGain) return;
-    const now = this.context.currentTime;
+    const now = Math.max(this.context.currentTime, this.startedAt);
     const time = this.currentTime;
-    const target = this.gainAt(time);
-    const gain = this.musicGain.gain;
-
-    // Capture before cancellation: removing automation can reset gain.value.
-    const heldGain = gain.value;
-    // Some browsers retain a curve that began before `now`. Remove its
-    // start event too before placing any new events inside its time span.
-    gain.cancelScheduledValues(0);
-    gain.setValueAtTime(heldGain, now);
-    gain.linearRampToValueAtTime(target, now + 0.045);
-    this.scheduleCurve(time + 0.045, now + 0.045);
+    this.replaceMusicGain(time, now, true);
   }
 
   private stopSources() {

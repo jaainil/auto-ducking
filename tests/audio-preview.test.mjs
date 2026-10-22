@@ -7,7 +7,11 @@ import { PreviewAudio } from '../src/lib/audioEngine.ts';
 class GainParam {
   value = 1;
   events = [];
-  cancelScheduledValues(time) { this.events = this.events.filter(event => event.time < time); }
+  constructor(clock = () => 0) { this.clock = clock; }
+  cancelScheduledValues(time) {
+    const effectiveTime = Math.max(time, this.clock());
+    this.events = this.events.filter(event => event.time < effectiveTime);
+  }
   setValueAtTime(value,time) {
     if(this.events.some(event => event.kind === 'curve' && time > event.time && time < event.time + event.duration)) {
       throw new DOMException("Can't add events during a curve event", 'InvalidStateError');
@@ -23,28 +27,36 @@ class GainParam {
 }
 function player() {
   const engine = new PreviewAudio();
-  const gain = new GainParam();
   const sources = [];
-  const context = {currentTime:1,resume:async()=>{},createBufferSource:()=>{
+  const gainNodes = [];
+  const context = {currentTime:1,destination:{},resume:async()=>{},createGain:()=>{
+    const node = {gain:new GainParam(()=>context.currentTime),connect(){},disconnect(){this.disconnected=true;}};
+    gainNodes.push(node);
+    return node;
+  },createBufferSource:()=>{
     const source = {connect(){},start(...args){this.started=args;},stop(){this.stopped=true;},disconnect(){}};
     sources.push(source);
     return source;
   }};
   // TypeScript private fields compile to ordinary properties; exercise the real
   // public transport and automation with strict AudioParam scheduling semantics.
-  Object.assign(engine,{context,musicGain:{gain},voiceGain:{},voiceBuffer:{duration:10},musicBuffer:{duration:3},duration:10});
+  const musicGain = context.createGain();
+  const gain = musicGain.gain;
+  Object.assign(engine,{context,musicGain,voiceGain:{},voiceBuffer:{duration:10},musicBuffer:{duration:3},duration:10});
   engine.setAutomation(new Float32Array(2000).fill(.25),-12,false);
-  return {engine,gain,context,sources};
+  return {engine,gain,context,sources,gainNodes};
 }
 test('changing ducking settings and bypass mid-play removes the active curve', async () => {
-  const {engine,gain,context}=player();
+  const {engine,context,gainNodes}=player();
   await engine.play();
   context.currentTime=2;
   assert.doesNotThrow(()=>engine.setAutomation(new Float32Array(2000).fill(.1),-18,false));
   context.currentTime=2.01;
   assert.doesNotThrow(()=>engine.setAutomation(new Float32Array(2000).fill(.1),-18,true));
-  assert.equal(gain.events.filter(e=>e.kind==='curve').length,1);
-  assert.ok(Math.abs(gain.events.find(e=>e.kind==='curve').values.at(-1)-10**(-18/20))<1e-6);
+  const active = engine.musicGain.gain;
+  assert.equal(active.events.filter(e=>e.kind==='curve').length,1);
+  assert.ok(gainNodes.length >= 4, 'each replacement gets an uncontaminated AudioParam');
+  assert.ok(Math.abs(active.events.find(e=>e.kind==='curve').values.at(-1)-10**(-18/20))<1e-6);
 });
 test('pause, seek and replay discard stale gain curves', async () => {
   const {engine,context}=player();
@@ -75,4 +87,13 @@ test('trimmed preview loops and seeks inside the selection without restarting di
   engine.pause();
   await engine.play(7.5);
   assert.equal(sources.at(-1).started[1],1.5);
+});
+
+// Seeks and live changes inside the initial scheduling lead must retain position.
+test('changing automation immediately after a seek preserves the seek position', async () => {
+  const {engine}=player();
+  await engine.play(5);
+  assert.equal(engine.currentTime,5);
+  assert.doesNotThrow(()=>engine.setAutomation(new Float32Array(2000).fill(.2),-12,true));
+  assert.equal(engine.currentTime,5);
 });
