@@ -40,6 +40,8 @@ Files and project JSON are stored under `data/` (`DATA_DIR` overrides this). The
 
 ## Verify
 
+For automated Docker builds and VPS deployment, see [the deployment guide](deploy/README.md).
+
 ```sh
 npm test
 npm run build

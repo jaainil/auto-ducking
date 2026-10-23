@@ -1,0 +1,29 @@
+services:
+  app:
+    image: ${AUTODUCK_IMAGE:?Set AUTODUCK_IMAGE to the published image digest}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:10000:10000"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "10000"
+      DATA_DIR: /app/data
+    volumes:
+      - data:/app/data
+    stop_grace_period: 120s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const {execFileSync}=require('node:child_process');execFileSync('ffprobe',['-version']);execFileSync('ffmpeg',['-version']);fetch('http://127.0.0.1:10000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 10s
+      start_period: 45s
+      retries: 5
+
+volumes:
+  data:
+    name: autoduck-data
