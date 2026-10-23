@@ -1024,60 +1024,7 @@ export function Editor({
             </button>
           </div>
         </div>
-      </header>
-
-      <main className="editor-main">
-        <div className="editor-grid">
-          <div className="editor-canvas">
-            <section className="preview-card" aria-labelledby="preview-title">
-              <div className="preview-card-head">
-                <h2 id="preview-title">{hasVideo ? "Video preview" : "Audio preview"}</h2>
-                <span className="preview-meta">
-                  <span>{engineLabel(project.vadEngine)}</span>
-                  <span className="subtitle-dot" />
-                  <span>
-                    {video?.width && video?.height
-                      ? `${video.width}×${video.height}`
-                      : hasVideo ? "Video" : "Voice + music"}
-                  </span>
-                  <span className="subtitle-dot" />
-                  <span>{formatDuration(duration)}</span>
-                </span>
-              </div>
-
-              <div className="preview-stage">
-                <div
-                  className={`preview-frame${portrait ? " is-portrait" : ""}`}
-                >
-                  {hasVideo ? <video
-                    ref={videoRef}
-                    src={project.mediaUrls.video ?? undefined}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    aria-label={`Preview of ${project.name}`}
-                    onLoadedMetadata={() => {
-                      if (videoRef.current) {
-                        try {
-                          videoRef.current.currentTime = currentTimeRef.current;
-                        } catch {
-                          /* ignore */
-                        }
-                      }
-                    }}
-                    onEnded={handleVideoEnded}
-                  /> : <div className="audio-preview-art">
-                    <WaveIcon size={64} />
-                    <strong>{project.source.voice?.originalName ?? "Voiceover mix"}</strong>
-                    <span>{playing ? "Playing your mix" : "Ready to listen"} · {formatDuration(duration)}</span>
-                  </div>}
-                  <span className="preview-badge">
-                    <span className="live-dot" />
-                    {bypass ? "Original music" : "Ducking preview"}
-                  </span>
-                </div>
-              </div>
-
+        <div className="editor-commandbar" role="region" aria-label="Playback controls">
               <div className="transport">
                 <div className="transport-controls">
                   <button
@@ -1148,13 +1095,59 @@ export function Editor({
                 </span>
               </div>
 
-              <div className="monitor-controls" role="group" aria-label="Track monitoring">
-                {(["voice", "music"] as const).map(track => <div className="monitor-track" key={track}>
-                  <span>{track === "voice" ? "Voice" : "Music"}</span>
-                  <button type="button" className="monitor-button" aria-label={`Mute ${track}`} aria-pressed={monitor[`${track}Muted`]} onClick={() => setMonitor(current => ({ ...current, [`${track}Muted`]: !current[`${track}Muted`] }))}>Mute</button>
-                  <button type="button" className="monitor-button" aria-label={`Solo ${track}`} aria-pressed={monitor[`${track}Solo`]} onClick={() => setMonitor(current => ({ ...current, [`${track}Solo`]: !current[`${track}Solo`] }))}>Solo</button>
-                </div>)}
-                <span className="monitor-note">Preview only. Exports include both tracks.</span>
+        </div>
+      </header>
+
+      <main className="editor-main">
+        <div className="editor-grid">
+          <div className="editor-canvas">
+            <section className="preview-card" aria-labelledby="preview-title">
+              <div className="preview-card-head">
+                <h2 id="preview-title">{hasVideo ? "Video preview" : "Audio preview"}</h2>
+                <span className="preview-meta">
+                  <span>{engineLabel(project.vadEngine)}</span>
+                  <span className="subtitle-dot" />
+                  <span>
+                    {video?.width && video?.height
+                      ? `${video.width}×${video.height}`
+                      : hasVideo ? "Video" : "Voice + music"}
+                  </span>
+                  <span className="subtitle-dot" />
+                  <span>{formatDuration(duration)}</span>
+                </span>
+              </div>
+
+              <div className="preview-stage">
+                <div
+                  className={`preview-frame${portrait ? " is-portrait" : ""}`}
+                >
+                  {hasVideo ? <video
+                    ref={videoRef}
+                    src={project.mediaUrls.video ?? undefined}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    aria-label={`Preview of ${project.name}`}
+                    onLoadedMetadata={() => {
+                      if (videoRef.current) {
+                        try {
+                          videoRef.current.currentTime = currentTimeRef.current;
+                        } catch {
+                          /* ignore */
+                        }
+                      }
+                    }}
+                    onEnded={handleVideoEnded}
+                  /> : <div className="audio-preview-art">
+                    <WaveIcon size={64} />
+                    <strong>{project.source.voice?.originalName ?? "Voiceover mix"}</strong>
+                    <span>{playing ? "Playing your mix" : "Ready to listen"} · {formatDuration(duration)}</span>
+                  </div>}
+                  <span className="preview-badge">
+                    <span className="live-dot" />
+                    {bypass ? "Original music" : "Ducking preview"}
+                  </span>
+                </div>
               </div>
 
               {(audioError || playError) && (
@@ -1170,27 +1163,12 @@ export function Editor({
               )}
             </section>
 
-            <MusicTrim
-              {...resolveMusicTrim(settings, musicDuration || project.source.music.duration)}
-              duration={musicDuration || project.source.music.duration}
-              videoDuration={duration}
-              audioOnly={!hasVideo}
-              peaks={sourceMusic}
-              filename={project.source.music.originalName}
-              loading={audioLoading || Boolean(audioError)}
-              onChange={(start, end) => setSettings(current => current ? { ...current, musicStartSeconds: start, musicEndSeconds: end } : current)}
-            >
-              <div className="music-finish-controls" aria-label="Music finishing">
-                <SliderField label="Music fade-in" value={settings.musicFadeInMs} min={0} max={10000} step={50} display={settings.musicFadeInMs ? `${(settings.musicFadeInMs / 1000).toFixed(2)} s` : "Off"} onChange={value => setSettings(current => current ? { ...current, musicFadeInMs: value } : current)} />
-                <SliderField label="Music fade-out" value={settings.musicFadeOutMs} min={0} max={10000} step={50} display={settings.musicFadeOutMs ? `${(settings.musicFadeOutMs / 1000).toFixed(2)} s` : "Off"} onChange={value => setSettings(current => current ? { ...current, musicFadeOutMs: value } : current)} />
-                <SliderField label="Smooth loop" value={settings.loopCrossfadeMs} min={0} max={2000} step={10} display={settings.loopCrossfadeMs ? `${settings.loopCrossfadeMs} ms` : "Off"} hint="Blends the end of your selection into its start. Short selections use a smaller overlap." onChange={value => setSettings(current => current ? { ...current, loopCrossfadeMs: value } : current)} />
-              </div>
-            </MusicTrim>
+
 
             <section className="timeline-card" aria-labelledby="timeline-title">
               <div className="timeline-head">
                 <div>
-                  <h2 id="timeline-title">Timeline</h2>
+                  <h2 id="timeline-title">Tracks &amp; timing</h2>
                   <p>
                     The blue line is your music automation. Edit a region to change
                     when the music ducks.
@@ -1226,6 +1204,91 @@ export function Editor({
                 loading={audioLoading}
                 error={audioError}
               />
+
+            <MusicTrim
+              {...resolveMusicTrim(settings, musicDuration || project.source.music.duration)}
+              duration={musicDuration || project.source.music.duration}
+              videoDuration={duration}
+              audioOnly={!hasVideo}
+              peaks={sourceMusic}
+              filename={project.source.music.originalName}
+              loading={audioLoading || Boolean(audioError)}
+              onChange={(start, end) => setSettings(current => current ? { ...current, musicStartSeconds: start, musicEndSeconds: end } : current)}
+            >
+              <details className="advanced-section music-finishing"><summary>Fades &amp; smooth loops</summary>
+              <div className="music-finish-controls" aria-label="Music finishing">
+                <SliderField label="Music fade-in" value={settings.musicFadeInMs} min={0} max={10000} step={50} display={settings.musicFadeInMs ? `${(settings.musicFadeInMs / 1000).toFixed(2)} s` : "Off"} onChange={value => setSettings(current => current ? { ...current, musicFadeInMs: value } : current)} />
+                <SliderField label="Music fade-out" value={settings.musicFadeOutMs} min={0} max={10000} step={50} display={settings.musicFadeOutMs ? `${(settings.musicFadeOutMs / 1000).toFixed(2)} s` : "Off"} onChange={value => setSettings(current => current ? { ...current, musicFadeOutMs: value } : current)} />
+                <SliderField label="Smooth loop" value={settings.loopCrossfadeMs} min={0} max={2000} step={10} display={settings.loopCrossfadeMs ? `${settings.loopCrossfadeMs} ms` : "Off"} hint="Blends the end of your selection into its start. Short selections use a smaller overlap." onChange={value => setSettings(current => current ? { ...current, loopCrossfadeMs: value } : current)} />
+              </div>
+              </details>
+            </MusicTrim>
+
+              <details className="advanced-section track-timing">
+                <summary>Ducking timing <span>Fade, hold &amp; recovery</span></summary>
+                <div className="timing-fields">
+
+                <SliderField
+                  label="Fade down"
+                  value={settings.fadeDownMs}
+                  min={40}
+                  max={600}
+                  step={10}
+                  display={msLabel(settings.fadeDownMs)}
+                  hint="How quickly the music eases down before speech."
+                  onChange={(value) =>
+                    setSettings((current) =>
+                      current ? { ...current, fadeDownMs: value } : current,
+                    )
+                  }
+                />
+                <SliderField
+                  label="Hold"
+                  value={settings.holdMs}
+                  min={0}
+                  max={1200}
+                  step={10}
+                  display={msLabel(settings.holdMs)}
+                  hint="Keeps the music down through short pauses."
+                  onChange={(value) =>
+                    setSettings((current) =>
+                      current ? { ...current, holdMs: value } : current,
+                    )
+                  }
+                />
+                <SliderField
+                  label="Recovery"
+                  value={settings.releaseMs}
+                  min={100}
+                  max={2000}
+                  step={10}
+                  display={msLabel(settings.releaseMs)}
+                  hint="How gradually the music comes back up."
+                  onChange={(value) =>
+                    setSettings((current) =>
+                      current ? { ...current, releaseMs: value } : current,
+                    )
+                  }
+                />
+                <SliderField
+                  label="Look-ahead"
+                  value={settings.lookAheadMs}
+                  min={0}
+                  max={300}
+                  step={10}
+                  display={msLabel(settings.lookAheadMs)}
+                  hint="Starts the fade just before speech begins."
+                  onChange={(value) =>
+                    setSettings((current) =>
+                      current ? { ...current, lookAheadMs: value } : current,
+                    )
+                  }
+                />
+
+
+
+                </div>
+              </details>
 
               <div className="regions">
                 <div className="regions-head">
@@ -1335,7 +1398,7 @@ export function Editor({
           <aside className="editor-side">
             <section className="panel" aria-labelledby="ducking-title">
               <div className="panel-head">
-                <h2 id="ducking-title">Ducking</h2>
+                <h2 id="ducking-title">Mixing</h2>
                 <div className="panel-actions">
                   <span className="panel-hint">Speech-aware</span>
                   <button type="button" className="text-button" onClick={() => void handleCopySettings()}>
@@ -1344,6 +1407,16 @@ export function Editor({
                 </div>
               </div>
               <div className="panel-body settings-body">
+              <div className="monitor-controls" role="group" aria-label="Track monitoring">
+                {(["voice", "music"] as const).map(track => <div className="monitor-track" key={track}>
+                  <span>{track === "voice" ? "Voice" : "Music"}</span>
+                  <button type="button" className="monitor-button" aria-label={`Mute ${track}`} aria-pressed={monitor[`${track}Muted`]} onClick={() => setMonitor(current => ({ ...current, [`${track}Muted`]: !current[`${track}Muted`] }))}>Mute</button>
+                  <button type="button" className="monitor-button" aria-label={`Solo ${track}`} aria-pressed={monitor[`${track}Solo`]} onClick={() => setMonitor(current => ({ ...current, [`${track}Solo`]: !current[`${track}Solo`] }))}>Solo</button>
+                </div>)}
+                <span className="monitor-note">Preview only. Exports include both tracks.</span>
+              </div>
+
+
                 <div className="preset-control">
                   <label htmlFor="mix-preset">Mix preset</label>
                   <select id="mix-preset" value={activePreset?.id ?? "custom"} onChange={event => {
@@ -1383,73 +1456,13 @@ export function Editor({
                     )
                   }
                 />
-                <div className="settings-divider" />
-                <SliderField
-                  label="Fade down"
-                  value={settings.fadeDownMs}
-                  min={40}
-                  max={600}
-                  step={10}
-                  display={msLabel(settings.fadeDownMs)}
-                  hint="How quickly the music eases down before speech."
-                  onChange={(value) =>
-                    setSettings((current) =>
-                      current ? { ...current, fadeDownMs: value } : current,
-                    )
-                  }
-                />
-                <SliderField
-                  label="Hold"
-                  value={settings.holdMs}
-                  min={0}
-                  max={1200}
-                  step={10}
-                  display={msLabel(settings.holdMs)}
-                  hint="Keeps the music down through short pauses."
-                  onChange={(value) =>
-                    setSettings((current) =>
-                      current ? { ...current, holdMs: value } : current,
-                    )
-                  }
-                />
-                <SliderField
-                  label="Recovery"
-                  value={settings.releaseMs}
-                  min={100}
-                  max={2000}
-                  step={10}
-                  display={msLabel(settings.releaseMs)}
-                  hint="How gradually the music comes back up."
-                  onChange={(value) =>
-                    setSettings((current) =>
-                      current ? { ...current, releaseMs: value } : current,
-                    )
-                  }
-                />
-                <SliderField
-                  label="Look-ahead"
-                  value={settings.lookAheadMs}
-                  min={0}
-                  max={300}
-                  step={10}
-                  display={msLabel(settings.lookAheadMs)}
-                  hint="Starts the fade just before speech begins."
-                  onChange={(value) =>
-                    setSettings((current) =>
-                      current ? { ...current, lookAheadMs: value } : current,
-                    )
-                  }
-                />
-
-                <div className="settings-divider" />
-
                 <button
                   type="button"
                   className="detection-toggle"
                   aria-expanded={advancedOpen}
                   onClick={() => setAdvancedOpen((open) => !open)}
                 >
-                  <span>Speech detection</span>
+                  <span>Advanced speech detection</span>
                   <ChevronDownIcon size={16} className="chevron" />
                 </button>
 
@@ -1592,6 +1605,7 @@ export function Editor({
                     </p>
                   </div>
 
+                  <details className="advanced-section export-processing"><summary>Export processing</summary>
                   <label className="checkbox-row">
                     <input
                       type="checkbox"
@@ -1605,6 +1619,7 @@ export function Editor({
                       </span>
                     </span>
                   </label>
+                  </details>
 
                   <button
                     type="button"

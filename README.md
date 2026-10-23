@@ -26,11 +26,13 @@ In the editor, **Trim music** displays the full uploaded song. Drag either blue 
 The six creator essentials are built into the editor:
 
 - **Undo/redo:** restore settings, music selection and speech-region edits. A continuous drag is one action. Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z or Ctrl+Y redoes. Text/number inputs retain native editing. History is session-local; restored edits autosave.
-- **Music fade-in/out:** independent project-start/end music ramps under Trim music, from 0 to 10 seconds. They remain active in Original mode and appear in the timeline curve.
+- **Music fade-in/out:** independent project-start/end music ramps in Trim music → Fades & smooth loops, from 0 to 10 seconds. They remain active in Original mode and appear in the timeline curve.
 - **Smooth loops:** blend selected tail/head with an adjustable overlap, capped for short selections. Original speed and pitch stay unchanged. Preview and native export share fitting rules.
 - **Audio-only projects:** voice sets project duration, no video needed, WAV/MP3 exports.
 - **Solo/mute monitoring:** listen to voice, music or both. These are preview-only; exports still include both tracks.
 - **Mix presets:** Gentle, Clear Speech, Strong Ducking and Long Recovery change ducking values while preserving music selection, finishing controls and speech detection preferences.
+
+Play and Original/Ducked remain in the sticky action bar while you scroll, alongside the existing Undo/Redo and Export controls. The Tracks & timing workspace groups the project waveform, source trim, exact timing and speech regions. Mixing controls live in the side panel; less frequent timing, finishing and export processing controls expand when needed.
 
 Restart `npm run dev` once after updating the backend, then reload your existing project; re-uploading is unnecessary.
 

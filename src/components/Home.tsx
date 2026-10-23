@@ -468,7 +468,7 @@ export function Home({
               </span>
             </div>
 
-            <div className="upload-actions" role="group" aria-label="Project type">
+            <div className="upload-actions upload-mode" role="group" aria-label="Project type">
               <button type="button" className={mode === "video" ? "button" : "ghost-button"} aria-pressed={mode === "video"} disabled={busy} onClick={() => { setMode("video"); setGlobalError(""); }}>Video</button>
               <button type="button" className={mode === "audio" ? "button" : "ghost-button"} aria-pressed={mode === "audio"} disabled={busy} onClick={() => { setMode("audio"); setGlobalError(""); }}>Audio</button>
             </div>

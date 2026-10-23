@@ -30,8 +30,12 @@ for(const [name,width,height] of [['desktop',1440,1050],['mobile',390,844]]) {
  if(metrics.scroll>metrics.width) throw new Error(`${name} overflows: ${JSON.stringify(metrics)}`);
  if(metrics.inputs!==3) throw new Error('Missing upload inputs');
  if(!await page.getByRole('button',{name:'Create mix'}).isDisabled()) throw new Error('Empty form permits submission');
+ await page.getByRole('group',{name:'Project type'}).getByRole('button',{name:'Audio',exact:true}).click();
+ const gap = await page.evaluate(()=>document.querySelector('.slot-grid').getBoundingClientRect().top-document.querySelector('.upload-mode').getBoundingClientRect().bottom);
+ if(gap < 19) throw new Error(`${name} mode selector spacing too tight: ${gap}px`);
+ if(await page.locator('input[type=file]').count()!==2) throw new Error('Audio mode must show voice and music inputs');
  await page.screenshot({path:`output/verification/${name}.png`,fullPage:true});
- console.log(`${name}: layout, upload inputs, empty state verified`);
+ console.log(`${name}: layout, upload inputs, audio-mode spacing and empty state verified`);
 }
 await browser.close();
 if(errors.length) throw new Error(errors.join('\n'));

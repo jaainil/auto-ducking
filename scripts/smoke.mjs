@@ -88,12 +88,17 @@ try {
  await page.getByRole('button',{name:'Play preview',exact:true}).click();
  await page.getByRole('button',{name:'Original',exact:true}).click();
  if(release) {
+   assert.equal(await page.locator('.timeline-card .music-trim').count(),1);
+   assert.equal(await page.locator('details.music-finishing').evaluate(element=>element.open),false);
+   assert.equal(await page.locator('details.track-timing').evaluate(element=>element.open),false);
+   await page.locator('details.music-finishing > summary').click();
    for(const name of ['Music fade-in','Music fade-out','Smooth loop']) {const slider=page.getByRole('slider',{name,exact:true});await slider.press('Home');await slider.press('ArrowRight');await slider.press('ArrowRight');}
    const preset=page.getByLabel('Mix preset');await preset.selectOption('gentle');
    await page.getByRole('button',{name:'Undo',exact:true}).click();assert.equal(await preset.inputValue(),'clear-speech');
    await page.getByRole('button',{name:'Redo',exact:true}).click();assert.equal(await preset.inputValue(),'gentle');
    for(const name of ['Solo voice','Mute voice','Solo music','Mute music']){const button=page.getByRole('button',{name,exact:true});await button.click();assert.equal(await button.getAttribute('aria-pressed'),'true');await button.click();}
    assert.equal(await page.getByRole('slider',{name:'Music fade-in',exact:true}).inputValue(),'100');
+   await page.locator('details.music-finishing > summary').click();
  }
  await mkdir('output/verification',{recursive:true});
  for(const [name,width,height] of [['desktop',1440,1000],['mobile',390,844]]) {
@@ -102,6 +107,10 @@ try {
    await page.evaluate(()=>window.scrollTo(0,0));
    await page.screenshot({path:`output/verification/editor-${name}.png`,fullPage:true});
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name} must not overflow`);
+   await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
+   for(const locator of [page.locator('.editor-commandbar .transport-play'),page.getByRole('button',{name:'Original',exact:true}),page.getByRole('button',{name:'Undo',exact:true}),page.getByRole('button',{name:'Redo',exact:true}),page.getByRole('button',{name:'Export mix',exact:true})]) {
+     const bounds=await locator.boundingBox();assert.ok(bounds && bounds.y>=0 && bounds.y+bounds.height<=height,`${name}: primary action must stay in viewport while scrolling`);
+   }
  }
  assert.equal(await page.getByText('The audio preview stopped.',{exact:false}).count(),0);
  assert.deepEqual(errors,[]);
