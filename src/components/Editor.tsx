@@ -45,6 +45,8 @@ import { Brand } from "./Brand";
 import { Timeline } from "./Timeline";
 import { MusicTrim } from "./MusicTrim";
 import { resolveMusicTrim } from "../../shared/music.js";
+import { createHistory, recordHistory, undoHistory, redoHistory } from "../../shared/history.js";
+import { MIX_PRESETS, applyPreset } from "../../shared/presets.js";
 import {
   AlertIcon,
   ArrowRightIcon,
@@ -134,6 +136,8 @@ export function Editor({
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [bypass, setBypass] = useState(false);
+  const [monitor, setMonitor] = useState({ voiceMuted: false, musicMuted: false, voiceSolo: false, musicSolo: false });
+  const [, setHistoryVersion] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -173,6 +177,9 @@ export function Editor({
   const togglePlayRef = useRef<() => void>(() => {});
   const seekRef = useRef<(time: number) => void>(() => {});
   const copyTimerRef = useRef<number | null>(null);
+  const historyRef = useRef<ReturnType<typeof createHistory> | null>(null);
+  const historyGroupRef = useRef<{ id: string; at: number } | null>(null);
+  const historyActionRef = useRef(0);
 
   const duration = project?.duration ?? 0;
 
@@ -197,6 +204,46 @@ export function Editor({
     () => (settings ? keyFor(settings, segments) : ""),
     [settings, segments],
   );
+
+  useEffect(() => {
+    if (!settings || !historyRef.current) return;
+    const group = historyGroupRef.current;
+    const next = recordHistory(historyRef.current, { settings, segments }, { group: group?.id ?? null, now: group?.at ?? Date.now() });
+    if (next !== historyRef.current) {
+      historyRef.current = next;
+      setHistoryVersion(version => version + 1);
+    }
+  }, [currentKey, settings, segments]);
+
+  const restoreHistory = useCallback((direction: "undo" | "redo") => {
+    if (!settings || !historyRef.current || analyzing) return;
+    const group = historyGroupRef.current;
+    const current = recordHistory(historyRef.current, { settings, segments }, { group: group?.id ?? null, now: group?.at ?? Date.now() });
+    const next = direction === "undo" ? undoHistory(current) : redoHistory(current);
+    historyRef.current = next;
+    historyGroupRef.current = null;
+    setSettings(next.present.settings);
+    setSegments(next.present.segments);
+    setSelectedId(null);
+    setHistoryVersion(version => version + 1);
+  }, [settings, segments, analyzing]);
+
+  useEffect(() => {
+    const onHistoryKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input:not([type="range"]):not([type="checkbox"]),textarea,[contenteditable="true"]')) return;
+      if (event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        restoreHistory(event.shiftKey ? "redo" : "undo");
+      } else if (event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        restoreHistory("redo");
+      }
+    };
+    document.addEventListener("keydown", onHistoryKey);
+    return () => document.removeEventListener("keydown", onHistoryKey);
+  }, [restoreHistory]);
 
   const detectionDirty = Boolean(
     settings &&
@@ -233,6 +280,9 @@ export function Editor({
     setSaveError("");
     setSaveState("saved");
     savedKeyRef.current = "";
+    historyRef.current = null;
+    historyGroupRef.current = null;
+    setMonitor({ voiceMuted: false, musicMuted: false, voiceSolo: false, musicSolo: false });
     detectionBaselineRef.current = "";
 
     getProject(projectId)
@@ -241,6 +291,9 @@ export function Editor({
         setProject(loaded);
         setSettings(loaded.settings);
         setSegments(loaded.segments);
+        historyRef.current = createHistory({ settings: loaded.settings, segments: loaded.segments });
+        setHistoryVersion(version => version + 1);
+        setFormat(loaded.media.video ? "mp4" : "wav");
         setTitle(loaded.name);
         savedKeyRef.current = keyFor(loaded.settings, loaded.segments);
         detectionBaselineRef.current = detectionKey(loaded.settings);
@@ -321,12 +374,18 @@ export function Editor({
   useEffect(() => {
     if (audioLoading || !settings) return;
     try {
-      const music = engineRef.current?.setMusicTrim(settings.musicStartSeconds, settings.musicEndSeconds);
+      const music = engineRef.current?.setMusicSettings(settings);
       if (music) setPeaks(current => current ? { ...current, music } : current);
     } catch {
       recoverPreview();
     }
-  }, [settings?.musicStartSeconds, settings?.musicEndSeconds, audioLoading, audioToken, recoverPreview]);
+  }, [settings?.musicStartSeconds, settings?.musicEndSeconds, settings?.musicFadeInMs, settings?.musicFadeOutMs, settings?.loopCrossfadeMs, audioLoading, audioToken, recoverPreview]);
+
+  useEffect(() => {
+    if (audioLoading) return;
+    try { engineRef.current?.setMonitor(monitor); }
+    catch { recoverPreview(); }
+  }, [monitor, audioLoading, audioToken, recoverPreview]);
 
   useEffect(() => {
     document.title = project
@@ -855,7 +914,9 @@ export function Editor({
   }
 
   const video = project.source.video;
-  const portrait = Boolean(video.height && video.width && video.height > video.width);
+  const hasVideo = Boolean(video && project.media.video);
+  const portrait = Boolean(video?.height && video?.width && video.height > video.width);
+  const activePreset = MIX_PRESETS.find(preset => Object.entries(preset.settings).every(([key, value]) => settings[key as keyof DuckingSettings] === value));
   const jobActive = Boolean(exportJob && !terminalStatus(exportJob.status));
   const activeExport = exportJob?.output ? toExportRecord(exportJob) : null;
   const previousExports = project.exports.filter(
@@ -863,7 +924,18 @@ export function Editor({
   );
 
   return (
-    <div className="app editor">
+    <div className="app editor" onPointerDownCapture={() => {
+      historyGroupRef.current = { id: `gesture:${++historyActionRef.current}`, at: Date.now() };
+    }} onKeyDownCapture={event => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement;
+      if (target.closest('button') && (event.key === "Enter" || event.key === " ")) {
+        historyGroupRef.current = { id: `action:${++historyActionRef.current}`, at: Date.now() };
+        return;
+      }
+      const field = target.closest('input,[role="slider"]');
+      if (field) historyGroupRef.current = { id: `field:${field.id || field.getAttribute('aria-label') || field.closest('label')?.textContent || 'edit'}`, at: Date.now() };
+    }}>
       <header className="topbar editor-topbar">
         <div className="topbar-inner editor-topbar-inner">
           <div className="editor-topbar-left">
@@ -914,6 +986,10 @@ export function Editor({
           </div>
 
           <div className="editor-topbar-actions">
+            <div className="history-controls" role="group" aria-label="Edit history">
+              <button type="button" className="text-button" disabled={!historyRef.current?.past.length || analyzing} onClick={() => restoreHistory("undo")} title="Undo (Ctrl/⌘ Z)">Undo</button>
+              <button type="button" className="text-button" disabled={!historyRef.current?.future.length || analyzing} onClick={() => restoreHistory("redo")} title="Redo (Ctrl/⌘ Shift Z)">Redo</button>
+            </div>
             <span
               className={`save-state${saveState === "saving" ? " is-saving" : ""}${saveState === "error" ? " is-error" : ""}`}
               title={saveError || "Changes save automatically on this machine."}
@@ -955,14 +1031,14 @@ export function Editor({
           <div className="editor-canvas">
             <section className="preview-card" aria-labelledby="preview-title">
               <div className="preview-card-head">
-                <h2 id="preview-title">Video preview</h2>
+                <h2 id="preview-title">{hasVideo ? "Video preview" : "Audio preview"}</h2>
                 <span className="preview-meta">
                   <span>{engineLabel(project.vadEngine)}</span>
                   <span className="subtitle-dot" />
                   <span>
-                    {video.width && video.height
+                    {video?.width && video?.height
                       ? `${video.width}×${video.height}`
-                      : "Video"}
+                      : hasVideo ? "Video" : "Voice + music"}
                   </span>
                   <span className="subtitle-dot" />
                   <span>{formatDuration(duration)}</span>
@@ -973,9 +1049,9 @@ export function Editor({
                 <div
                   className={`preview-frame${portrait ? " is-portrait" : ""}`}
                 >
-                  <video
+                  {hasVideo ? <video
                     ref={videoRef}
-                    src={project.mediaUrls.video}
+                    src={project.mediaUrls.video ?? undefined}
                     muted
                     playsInline
                     preload="metadata"
@@ -990,7 +1066,11 @@ export function Editor({
                       }
                     }}
                     onEnded={handleVideoEnded}
-                  />
+                  /> : <div className="audio-preview-art">
+                    <WaveIcon size={64} />
+                    <strong>{project.source.voice?.originalName ?? "Voiceover mix"}</strong>
+                    <span>{playing ? "Playing your mix" : "Ready to listen"} · {formatDuration(duration)}</span>
+                  </div>}
                   <span className="preview-badge">
                     <span className="live-dot" />
                     {bypass ? "Original music" : "Ducking preview"}
@@ -1068,6 +1148,15 @@ export function Editor({
                 </span>
               </div>
 
+              <div className="monitor-controls" role="group" aria-label="Track monitoring">
+                {(["voice", "music"] as const).map(track => <div className="monitor-track" key={track}>
+                  <span>{track === "voice" ? "Voice" : "Music"}</span>
+                  <button type="button" className="monitor-button" aria-label={`Mute ${track}`} aria-pressed={monitor[`${track}Muted`]} onClick={() => setMonitor(current => ({ ...current, [`${track}Muted`]: !current[`${track}Muted`] }))}>Mute</button>
+                  <button type="button" className="monitor-button" aria-label={`Solo ${track}`} aria-pressed={monitor[`${track}Solo`]} onClick={() => setMonitor(current => ({ ...current, [`${track}Solo`]: !current[`${track}Solo`] }))}>Solo</button>
+                </div>)}
+                <span className="monitor-note">Preview only. Exports include both tracks.</span>
+              </div>
+
               {(audioError || playError) && (
                 <div className="preview-error" role="alert">
                   <AlertIcon size={15} />
@@ -1085,11 +1174,18 @@ export function Editor({
               {...resolveMusicTrim(settings, musicDuration || project.source.music.duration)}
               duration={musicDuration || project.source.music.duration}
               videoDuration={duration}
+              audioOnly={!hasVideo}
               peaks={sourceMusic}
               filename={project.source.music.originalName}
               loading={audioLoading || Boolean(audioError)}
               onChange={(start, end) => setSettings(current => current ? { ...current, musicStartSeconds: start, musicEndSeconds: end } : current)}
-            />
+            >
+              <div className="music-finish-controls" aria-label="Music finishing">
+                <SliderField label="Music fade-in" value={settings.musicFadeInMs} min={0} max={10000} step={50} display={settings.musicFadeInMs ? `${(settings.musicFadeInMs / 1000).toFixed(2)} s` : "Off"} onChange={value => setSettings(current => current ? { ...current, musicFadeInMs: value } : current)} />
+                <SliderField label="Music fade-out" value={settings.musicFadeOutMs} min={0} max={10000} step={50} display={settings.musicFadeOutMs ? `${(settings.musicFadeOutMs / 1000).toFixed(2)} s` : "Off"} onChange={value => setSettings(current => current ? { ...current, musicFadeOutMs: value } : current)} />
+                <SliderField label="Smooth loop" value={settings.loopCrossfadeMs} min={0} max={2000} step={10} display={settings.loopCrossfadeMs ? `${settings.loopCrossfadeMs} ms` : "Off"} hint="Blends the end of your selection into its start. Short selections use a smaller overlap." onChange={value => setSettings(current => current ? { ...current, loopCrossfadeMs: value } : current)} />
+              </div>
+            </MusicTrim>
 
             <section className="timeline-card" aria-labelledby="timeline-title">
               <div className="timeline-head">
@@ -1225,7 +1321,10 @@ export function Editor({
                     key={selectedSegment.id}
                     segment={selectedSegment}
                     duration={duration}
-                    onChange={handleUpdateSegment}
+                    onChange={(id, start, end) => {
+                      historyGroupRef.current = { id: `region:${++historyActionRef.current}`, at: Date.now() };
+                      handleUpdateSegment(id, start, end);
+                    }}
                     onRemove={() => handleRemoveSegment(selectedSegment.id)}
                   />
                 )}
@@ -1245,6 +1344,17 @@ export function Editor({
                 </div>
               </div>
               <div className="panel-body settings-body">
+                <div className="preset-control">
+                  <label htmlFor="mix-preset">Mix preset</label>
+                  <select id="mix-preset" value={activePreset?.id ?? "custom"} onChange={event => {
+                    historyGroupRef.current = { id: `preset:${++historyActionRef.current}`, at: Date.now() };
+                    setSettings(current => current ? applyPreset(current, event.target.value) : current);
+                  }}>
+                    <option value="custom" disabled>Custom settings</option>
+                    {MIX_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                  </select>
+                  <p>{activePreset?.description ?? "Your mix, tuned by you. Choose a starting point above."} Music selection and finishing stay unchanged.</p>
+                </div>
                 <SliderField
                   label="Music reduction"
                   value={settings.reductionDb}
@@ -1438,7 +1548,7 @@ export function Editor({
                   <button
                     type="button"
                     className="button quiet small"
-                    onClick={() => setSettings(current => ({ ...DEFAULT_SETTINGS, musicStartSeconds: current?.musicStartSeconds ?? 0, musicEndSeconds: current?.musicEndSeconds ?? 0 }))}
+                    onClick={() => setSettings(current => ({ ...DEFAULT_SETTINGS, musicStartSeconds: current?.musicStartSeconds ?? 0, musicEndSeconds: current?.musicEndSeconds ?? 0, musicFadeInMs: current?.musicFadeInMs ?? 0, musicFadeOutMs: current?.musicFadeOutMs ?? 0, loopCrossfadeMs: current?.loopCrossfadeMs ?? 0 }))}
                   >
                     <ResetIcon size={13} />
                     Reset settings
@@ -1460,7 +1570,7 @@ export function Editor({
                         { value: "mp4", label: "MP4", note: "Video" },
                         { value: "wav", label: "WAV", note: "Lossless" },
                         { value: "mp3", label: "MP3", note: "Audio" },
-                      ].map((option) => (
+                      ].filter(option => hasVideo || option.value !== "mp4").map((option) => (
                         <button
                           key={option.value}
                           type="button"
@@ -1618,12 +1728,12 @@ export function Editor({
                     <span className="meta-key">Detection</span>
                     <span className="meta-value">{engineLabel(project.vadEngine)}</span>
                   </div>
-                  <div className="meta-row">
+                  {video && <div className="meta-row">
                     <span className="meta-key">Video</span>
                     <span className="meta-value" title={video.originalName}>
                       {video.originalName}
                     </span>
-                  </div>
+                  </div>}
                   <div className="meta-row">
                     <span className="meta-key">Music</span>
                     <span className="meta-value" title={project.source.music.originalName}>

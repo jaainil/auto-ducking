@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { buildEnvelope, envelopeAt } from "../../shared/envelope.js";
+import { musicFadeAt } from "../../shared/music.js";
 import type { DuckingSettings, Peaks, Segment } from "../types";
 import { clamp, formatRegion, formatTimecode } from "../lib/format";
 
@@ -194,7 +195,11 @@ export function Timeline({
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const envelope = useMemo(
-    () => buildEnvelope(segments, settings, duration, ENVELOPE_RATE),
+    () => {
+      const curve = buildEnvelope(segments, settings, duration, ENVELOPE_RATE);
+      for (let i = 0; i < curve.length; i++) curve[i] *= musicFadeAt(i / ENVELOPE_RATE, duration, settings);
+      return curve;
+    },
     [segments, settings, duration],
   );
 

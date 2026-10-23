@@ -982,6 +982,83 @@ body {
   min-width: 0;
 }
 
+.faq {
+  position: relative;
+  z-index: 1;
+  margin-top: 90px;
+  padding-top: var(--space-xl);
+  border-top: 1px solid var(--line);
+}
+
+.faq-head h2 {
+  font-family: var(--font-display);
+  font-size: var(--text-headline-lg);
+  font-weight: 400;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.faq-head p {
+  margin-top: var(--space-sm);
+  color: var(--tertiary);
+  max-width: 52ch;
+}
+
+.faq-list {
+  margin-top: var(--space-lg);
+}
+
+.faq-item {
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-md) 0;
+}
+
+.faq-item summary {
+  cursor: pointer;
+  font-size: var(--text-body-lg);
+  font-weight: 500;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item summary::after {
+  content: "+";
+  font-size: 22px;
+  color: var(--tertiary);
+  line-height: 1;
+}
+
+.faq-item[open] summary::after {
+  content: "−";
+}
+
+.faq-item p {
+  margin-top: var(--space-sm);
+  color: var(--tertiary);
+  font-size: var(--text-body-md);
+  max-width: 72ch;
+  line-height: 1.6;
+}
+
+@media (max-width: 700px) {
+  .faq {
+    margin-top: 60px;
+    padding-top: 36px;
+  }
+
+  .faq-head h2 {
+    font-size: var(--text-headline-md);
+  }
+}
+
 .home-footer {
   border-top: 1px solid var(--line);
   background: var(--surface);
@@ -2838,4 +2915,33 @@ figure {
   .music-trim { padding: 18px; }
   .music-trim-controls > button { width: 100%; justify-content: center; }
   .music-trim-help { font-size: 12.6px; }
+}
+
+/* Creator essentials share the editor's compact, quiet control language. */
+.history-controls { display: flex; align-items: center; gap: 12px; padding-right: 14px; border-right: 1px solid var(--neutral); }
+.history-controls button { font-size: 12.6px; }
+.history-controls button:disabled { opacity: .45; cursor: default; }
+.monitor-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 14px 20px; border-top: 1px solid var(--neutral); }
+.monitor-track { display: flex; align-items: center; gap: 6px; }
+.monitor-track > span { font-size: 12.6px; margin-right: 4px; color: var(--tertiary); }
+.monitor-button { padding: 5px 10px; border: 1px solid var(--neutral); border-radius: var(--radius-full); background: var(--surface); color: var(--tertiary); font-size: 11px; cursor: pointer; }
+.monitor-button:hover { border-color: var(--primary); color: var(--primary); }
+.monitor-button[aria-pressed="true"] { color: var(--primary); border-color: var(--primary); background: var(--primary-10); }
+.monitor-note { font-size: 11px; color: var(--tertiary); margin-left: auto; }
+.music-finish-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 28px; margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--neutral); }
+.music-finish-controls > :last-child { grid-column: 1 / -1; }
+.music-finish-controls .slider-field { padding: 0; border: 0; }
+.preset-control { padding-bottom: 24px; margin-bottom: 4px; border-bottom: 1px solid var(--neutral); }
+.preset-control label { display: block; font-size: 12.6px; margin-bottom: 8px; }
+.preset-control select { display: block; width: 100%; padding: 10px 12px; border: 1px solid var(--neutral); border-radius: var(--radius-md); background: var(--surface); color: var(--on-surface); font-size: 14.4px; }
+.preset-control p { font-size: 12.6px; line-height: 1.6; color: var(--tertiary); margin-top: 10px; }
+.audio-preview-art { min-height: 240px; aspect-ratio: 16 / 9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--primary-10); color: var(--primary); padding: 28px; text-align: center; }
+.audio-preview-art strong { max-width: 100%; overflow-wrap: anywhere; font-size: 22px; font-weight: 400; color: var(--on-surface); }
+.audio-preview-art > span { font-size: 12.6px; color: var(--tertiary); }
+@media (max-width: 720px) {
+ .history-controls { gap: 10px; padding-right: 10px; border-right: 0; }
+ .monitor-controls { padding: 14px; gap: 12px; }
+ .monitor-note { width: 100%; margin-left: 0; }
+ .music-finish-controls { gap: 20px; }
+ .audio-preview-art { min-height: 200px; }
 }

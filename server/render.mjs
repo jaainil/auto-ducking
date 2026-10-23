@@ -1,7 +1,7 @@
 import { mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { projectPath, downloadFilename } from "./storage.mjs";
-import { resolveMusicTrim } from "../shared/music.js";
+import { resolveMusicFit } from "../shared/music.js";
 import {
   probeMedia,
   runFfmpeg,
@@ -32,6 +32,8 @@ export async function renderProject(project, options, context = {}) {
   const format = FORMATS[options.format];
   if (!format) throw new Error("Choose MP4, WAV, or MP3");
 
+  if (options.format === "mp4" && !project.media.video) throw new Error("MP4 requires a video source");
+
   const duration = Number(project.duration);
   if (!Number.isFinite(duration) || duration <= 0) {
     throw new Error("The project has no usable duration");
@@ -54,15 +56,20 @@ export async function renderProject(project, options, context = {}) {
     progress(3, "Building the automation curve");
     await writeAutomationWav(automation, project.segments, project.settings, duration);
 
-    const videoPath = projectPath(project.id, project.media.video);
+    const videoPath = project.media.video ? projectPath(project.id, project.media.video) : null;
     const voicePath = projectPath(project.id, project.media.voiceWav);
     let musicPath = projectPath(project.id, project.media.music);
     const sourceDuration = project.source?.music?.duration ?? (await probeMedia(musicPath)).duration;
-    const trim = resolveMusicTrim(project.settings, sourceDuration);
-    if (trim.start > 0 || trim.end < sourceDuration - 0.0001) {
+    const trim = resolveMusicFit(project.settings, sourceDuration);
+    if (trim.start > 0 || trim.end < sourceDuration - 0.0001 || trim.overlap > 0) {
       progress(5, "Preparing selected music");
+      const selection = `atrim=start=${trim.start}:end=${trim.end},asetpts=PTS-STARTPTS,aresample=48000`;
+      const x = trim.overlap;
+      const filters = x > 0
+        ? `[0:a]${selection},asplit=3[head][tail][middle];[tail]atrim=start=${trim.length-x},asetpts=PTS-STARTPTS[t];[head]atrim=end=${x},asetpts=PTS-STARTPTS[h];[t][h]acrossfade=d=${x}:c1=tri:c2=tri[blend];[middle]atrim=start=${x}:end=${trim.length-x},asetpts=PTS-STARTPTS[m];[blend][m]concat=n=2:v=0:a=1[out]`
+        : `[0:a]${selection}[out]`;
       await runFfmpeg([
-        "-i", musicPath, "-ss", String(trim.start), "-t", String(trim.length),
+        "-i", musicPath, "-filter_complex", filters, "-map", "[out]",
         "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", selectedMusic,
       ], { onSpawn: child => context.onChild?.(child) });
       musicPath = selectedMusic;

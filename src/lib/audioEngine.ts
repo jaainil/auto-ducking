@@ -1,5 +1,5 @@
 import { dbToGain, envelopeAt } from "../../shared/envelope.js";
-import { resolveMusicTrim, musicOffsetAt } from "../../shared/music.js";
+import { resolveMusicTrim, musicOffsetAt, resolveMusicFit, musicFadeAt, fittedMusicSample } from "../../shared/music.js";
 import type { Peaks } from "../types";
 
 const PEAK_BUCKETS = 2200;
@@ -67,6 +67,11 @@ export class PreviewAudio {
   private voiceBuffer: AudioBuffer | null = null;
   private musicBuffer: AudioBuffer | null = null;
   private voiceSource: AudioBufferSourceNode | null = null;
+  private fittedBuffer: AudioBuffer | null = null;
+  private fittedLoop = true;
+  private musicSettings: Record<string, number> = {};
+  private monitor = { voiceMuted: false, musicMuted: false, voiceSolo: false, musicSolo: false };
+  private musicMonitor: GainNode | null = null;
   private musicSource: AudioBufferSourceNode | null = null;
   private musicGain: GainNode | null = null;
   private voiceGain: GainNode | null = null;
@@ -122,7 +127,9 @@ export class PreviewAudio {
 
       this.musicGain = this.context.createGain();
       this.musicGain.gain.value = 1;
-      this.musicGain.connect(this.limiter);
+      this.musicMonitor = this.context.createGain();
+      this.musicMonitor.connect(this.limiter);
+      this.musicGain.connect(this.musicMonitor);
     }
     return this.context;
   }
@@ -155,6 +162,8 @@ export class PreviewAudio {
 
     this.voiceBuffer = voiceBuffer;
     this.musicBuffer = musicBuffer;
+    this.fittedBuffer = null;
+    this.musicSettings = {};
     this.musicTrim = resolveMusicTrim({}, musicBuffer.duration);
 
     return {
@@ -182,36 +191,65 @@ export class PreviewAudio {
     if (this.playing) this.reschedule();
   }
 
+  setMonitor(monitor: { voiceMuted: boolean; musicMuted: boolean; voiceSolo: boolean; musicSolo: boolean }) {
+    this.monitor = monitor;
+    const solo = monitor.voiceSolo || monitor.musicSolo;
+    if (this.voiceGain) this.voiceGain.gain.value = !monitor.voiceMuted && (!solo || monitor.voiceSolo) ? 1 : 0;
+    if (this.musicMonitor) this.musicMonitor.gain.value = !monitor.musicMuted && (!solo || monitor.musicSolo) ? 1 : 0;
+  }
+
   setMusicTrim(start: number, end: number) {
+    return this.setMusicSettings({ ...this.musicSettings, musicStartSeconds: start, musicEndSeconds: end });
+  }
+
+  setMusicSettings(settings: { musicStartSeconds?: number; musicEndSeconds?: number; musicFadeInMs?: number; musicFadeOutMs?: number; loopCrossfadeMs?: number }) {
+    const previous = this.musicSettings;
+    this.musicSettings = { ...settings };
     if (!this.musicBuffer) return null;
-    const trim = resolveMusicTrim({ musicStartSeconds: start, musicEndSeconds: end }, this.musicBuffer.duration);
-    const changed = trim.start !== this.musicTrim.start || trim.end !== this.musicTrim.end;
-    this.musicTrim = trim;
-    if (changed && this.playing && this.context) {
-      if (this.musicSource) {
-        try { this.musicSource.stop(); } catch { /* already stopped */ }
-        this.musicSource.disconnect();
+    const buffer = this.musicBuffer;
+    const fit = resolveMusicFit(settings, buffer.duration, buffer.sampleRate);
+    const changed = fit.start !== this.musicTrim.start || fit.end !== this.musicTrim.end || fit.overlap !== resolveMusicFit(previous, buffer.duration, buffer.sampleRate).overlap;
+    this.musicTrim = fit;
+    if (changed) {
+      this.fittedBuffer = null;
+      if (fit.overlap > 0 && this.context) {
+        // The fitted cycle can be far longer than the project. Materialize only
+        // the audible prefix in that case, retaining its initial tail/head blend.
+        const cycleFrames = Math.max(1, Math.round(fit.period * buffer.sampleRate));
+        const projectFrames = Math.max(1, Math.ceil(this.duration * buffer.sampleRate));
+        this.fittedLoop = cycleFrames <= projectFrames;
+        const cycle = this.context.createBuffer(buffer.numberOfChannels, Math.min(cycleFrames, projectFrames), buffer.sampleRate);
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+          const input = buffer.getChannelData(channel), output = cycle.getChannelData(channel);
+          for (let i = 0; i < output.length; i++) output[i] = fittedMusicSample(input, buffer.sampleRate, i / buffer.sampleRate, fit);
+        }
+        this.fittedBuffer = cycle;
       }
-      this.startMusic(Math.max(this.context.currentTime, this.startedAt), this.currentTime);
+      if (this.playing && this.context) {
+        try { this.musicSource?.stop(); } catch { /* already stopped */ }
+        this.musicSource?.disconnect();
+        this.startMusic(Math.max(this.context.currentTime, this.startedAt), this.currentTime);
+      }
     }
-    return peaksFor(this.musicBuffer, this.duration, PEAK_BUCKETS, true, trim.start, trim.end);
+    if (this.playing) this.reschedule();
+    return peaksFor(this.fittedBuffer ?? buffer, this.duration, PEAK_BUCKETS, this.fittedBuffer ? this.fittedLoop : true, this.fittedBuffer ? 0 : fit.start, this.fittedBuffer ? this.fittedBuffer.duration : fit.end);
   }
 
   private startMusic(when: number, offset: number) {
     if (!this.context || !this.musicBuffer || !this.musicGain) return;
     const trim = this.musicTrim.length > 0 ? this.musicTrim : resolveMusicTrim({}, this.musicBuffer.duration);
     const music = this.context.createBufferSource();
-    music.buffer = this.musicBuffer;
-    music.loop = true;
-    music.loopStart = trim.start;
-    music.loopEnd = trim.end;
+    music.buffer = this.fittedBuffer ?? this.musicBuffer;
+    music.loop = this.fittedBuffer ? this.fittedLoop : true;
+    music.loopStart = this.fittedBuffer ? 0 : trim.start;
+    music.loopEnd = this.fittedBuffer ? this.fittedBuffer.duration : trim.end;
     music.connect(this.musicGain);
-    music.start(when, musicOffsetAt(offset, trim));
+    music.start(when, this.fittedBuffer ? (this.fittedLoop ? offset % this.fittedBuffer.duration : offset) : musicOffsetAt(offset, trim));
     this.musicSource = music;
   }
 
   private gainAt(time: number) {
-    const base = dbToGain(this.baseDb);
+    const base = dbToGain(this.baseDb) * musicFadeAt(time, this.duration, this.musicSettings);
     if (this.bypass) return base;
     return base * envelopeAt(this.envelope, this.envelopeRate, time);
   }
@@ -243,7 +281,7 @@ export class PreviewAudio {
     // Each AudioParam gets exactly one curve. Never insert events into, or
     // depend on browser cancellation of, an already-running value curve.
     this.scheduleCurve(next.gain, offset, when, smooth ? previous?.gain.value : undefined);
-    next.connect(this.limiter ?? this.context.destination);
+    next.connect(this.musicMonitor ?? this.limiter ?? this.context.destination);
     if (this.musicSource) {
       this.musicSource.disconnect();
       this.musicSource.connect(next);
@@ -339,6 +377,7 @@ export class PreviewAudio {
     this.playing = false;
     this.voiceBuffer = null;
     this.musicBuffer = null;
+    this.fittedBuffer = null;
     if (this.context) {
       void this.context.close().catch(() => {});
       this.context = null;

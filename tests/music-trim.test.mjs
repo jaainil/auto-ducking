@@ -16,3 +16,12 @@ test('seeking loops inside the selected section at original speed',()=>{
  assert.equal(musicOffsetAt(3,trim),5);
  assert.equal(musicOffsetAt(7,trim),6);
 });
+
+test('fitting clamps overlap and combines project fades', async()=>{
+ const { resolveMusicFit, musicFadeAt, fittedMusicSample } = await import('../shared/music.js');
+ const fit=resolveMusicFit({loopCrossfadeMs:2000},1,100);
+ assert.ok(fit.overlap<.5);
+ assert.equal(musicFadeAt(1,2,{musicFadeInMs:4000,musicFadeOutMs:4000}),.0625);
+ const normal=resolveMusicFit({},1,100);
+ assert.equal(fittedMusicSample(new Float32Array([1,2,3,4]),4,0,normal),1);
+});

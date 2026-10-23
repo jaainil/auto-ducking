@@ -23,6 +23,25 @@ export function App() {
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
 
+  useEffect(() => {
+    const homeTitle = "Auto-Duck Music for Videos & Podcasts | AudioDuck Studio";
+    if (route.name === "project") {
+      document.title = "Editing project | AudioDuck Studio";
+      let meta = document.querySelector('meta[name="robots"]');
+      if (!meta) {
+        meta = document.createElement("meta");
+        meta.setAttribute("name", "robots");
+        document.head.appendChild(meta);
+      }
+      meta.setAttribute("content", "noindex");
+      return () => {
+        document.title = homeTitle;
+        meta?.setAttribute("content", "index, follow");
+      };
+    }
+    document.title = homeTitle;
+  }, [route]);
+
   const openProject = (id: string) => {
     window.location.hash = `/project/${id}`;
   };

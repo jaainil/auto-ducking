@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { musicFadeAt } from "../shared/music.js";
 import { buildEnvelope, LIMITS } from "../shared/envelope.js";
 
 /**
@@ -302,7 +303,7 @@ export async function writeAutomationWav(file, segments, settings, duration) {
   wav.writeUInt32LE(byteCount, 40);
 
   for (let i = 0; i < frames; i += 1) {
-    const value = Math.max(0, Math.min(32767, Math.round(envelope[i] * 32767)));
+    const value = Math.max(0, Math.min(32767, Math.round(envelope[i] * musicFadeAt(i / rate, duration, settings) * 32767)));
     wav.writeInt16LE(value, 44 + i * 4);
     wav.writeInt16LE(value, 46 + i * 4);
   }

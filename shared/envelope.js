@@ -26,6 +26,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   padMs: 60,
   musicStartSeconds: 0,
   musicEndSeconds: 0,
+  musicFadeInMs: 0,
+  musicFadeOutMs: 0,
+  loopCrossfadeMs: 0,
 });
 
 export const LIMITS = Object.freeze({

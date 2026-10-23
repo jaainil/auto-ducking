@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: audioduck-studio
+    runtime: docker
+    plan: 1c-2g
+    region: oregon
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /app/data
+    disk:
+      name: audioduck-data
+      mountPath: /app/data
+      sizeGB: 10

@@ -1,5 +1,5 @@
 import { useMemo, useRef } from "react";
-import type { KeyboardEvent, PointerEvent } from "react";
+import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
 import type { PeakData } from "../types";
 import { formatTimecode } from "../lib/format";
 
@@ -12,9 +12,11 @@ interface Props {
   filename: string;
   loading: boolean;
   onChange: (start: number, end: number) => void;
+  children?: ReactNode;
+  audioOnly?: boolean;
 }
 
-export function MusicTrim({ start, end, duration, videoDuration, peaks, filename, loading, onChange }: Props) {
+export function MusicTrim({ start, end, duration, videoDuration, peaks, filename, loading, onChange, children, audioOnly = false }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const minLength = Math.min(.05, duration);
   const safeDuration = duration || 1;
@@ -53,7 +55,7 @@ export function MusicTrim({ start, end, duration, videoDuration, peaks, filename
       <div><h2 id="music-trim-title">Trim music</h2><p title={filename}>{filename}</p></div>
       <button type="button" className="text-button" disabled={loading} onClick={() => onChange(0, duration)}>Use full track</button>
     </div>
-    <p className="music-trim-help">Choose the part of the song you want. We fit it to your video automatically.</p>
+    <p className="music-trim-help">Choose the part of the song you want. We fit it to your {audioOnly ? "voiceover" : "video"} automatically.</p>
     <div className="music-trim-track" ref={trackRef} aria-busy={loading}>
       <svg viewBox="0 0 1000 88" preserveAspectRatio="none" aria-hidden="true">
         <rect width="1000" height="88" fill="#f5f8ff" />
@@ -69,8 +71,9 @@ export function MusicTrim({ start, end, duration, videoDuration, peaks, filename
     <div className="music-trim-controls">
       <label>Start <span>(seconds)</span><input type="number" min="0" max={Math.max(0,end-minLength)} step="0.1" value={Number(start.toFixed(3))} disabled={loading} onChange={event => {if(event.target.value !== "") change("start", event.target.valueAsNumber);}} /></label>
       <label>End <span>(seconds)</span><input type="number" min={start+minLength} max={duration} step="0.1" value={Number(end.toFixed(3))} disabled={loading} onChange={event => {if(event.target.value !== "") change("end", event.target.valueAsNumber);}} /></label>
-      <button type="button" className="button secondary small" disabled={loading} onClick={() => onChange(start, Math.min(duration, start + videoDuration))}>Match video length</button>
+      <button type="button" className="button secondary small" disabled={loading} onClick={() => onChange(start, Math.min(duration, start + videoDuration))}>Match {audioOnly ? "voiceover" : "video"} length</button>
     </div>
-    <p className="music-trim-summary" role="status"><strong>{selected.toFixed(1)}s selected</strong><span>{selected < videoDuration - .01 ? `Loops to fill your ${formatTimecode(videoDuration)} video.` : `Cuts to your ${formatTimecode(videoDuration)} video.`} Original speed and pitch.</span></p>
+    <p className="music-trim-summary" role="status"><strong>{selected.toFixed(1)}s selected</strong><span>{selected < videoDuration - .01 ? `Loops to fill your ${formatTimecode(videoDuration)} ${audioOnly ? "mix" : "video"}.` : `Cuts to your ${formatTimecode(videoDuration)} ${audioOnly ? "mix" : "video"}.`} Original speed and pitch.</span></p>
+    {children}
   </section>;
 }

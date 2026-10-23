@@ -30,6 +30,7 @@ import {
   removeUpload,
   safeName,
   writeJson,
+  validateProjectUploads,
 } from "./storage.mjs";
 import {
   decodePcm16k,
@@ -75,6 +76,9 @@ const SETTINGS_SCHEMA = {
   padMs: [0, 300],
   musicStartSeconds: [0, 1200],
   musicEndSeconds: [0, 1200],
+  musicFadeInMs: [0, 10000],
+  musicFadeOutMs: [0, 10000],
+  loopCrossfadeMs: [0, 2000],
 };
 
 function log(...args) {
@@ -329,6 +333,7 @@ async function receiveUpload(req, res, role) {
 function publicProject(project) {
   return {
     ...project,
+    kind: project.source?.video || project.media?.video ? "video" : "audio",
     settings: { ...DEFAULT_SETTINGS, ...project.settings },
     mediaUrls: {
       video: mediaUrl(project.id, project.media.video),
@@ -385,23 +390,15 @@ function sanitizeSegments(input, duration) {
 }
 
 async function createProject(body) {
-  const videoUploadId = body.videoUploadId;
-  const musicUploadId = body.musicUploadId;
-  const voiceUploadId = body.voiceUploadId || null;
-
-  if (!isSafeId(videoUploadId) || !isSafeId(musicUploadId)) {
-    const error = new Error("Add a video and a music track to start.");
-    error.status = 400;
-    throw error;
-  }
-
-  const videoUpload = await readJson(join(UPLOAD_DIR, `${videoUploadId}.json`));
+  const { videoUploadId, musicUploadId, voiceUploadId } = validateProjectUploads(body);
+  const videoUpload = videoUploadId
+    ? await readJson(join(UPLOAD_DIR, `${videoUploadId}.json`)) : null;
   const musicUpload = await readJson(join(UPLOAD_DIR, `${musicUploadId}.json`));
   const voiceUpload = voiceUploadId
     ? await readJson(join(UPLOAD_DIR, `${voiceUploadId}.json`))
     : null;
 
-  if (!videoUpload || videoUpload.role !== "video") {
+  if (videoUploadId && (!videoUpload || videoUpload.role !== "video")) {
     const error = new Error("The video upload expired. Add it again.");
     error.status = 410;
     throw error;
@@ -417,7 +414,7 @@ async function createProject(body) {
     throw error;
   }
 
-  if (!videoUpload.probe.hasAudio && !voiceUpload) {
+  if (!videoUpload?.probe.hasAudio && !voiceUpload) {
     const error = new Error(
       "This video has no audio track. Add a separate voiceover, or choose a video with sound.",
     );
@@ -426,11 +423,11 @@ async function createProject(body) {
   }
 
   const duration = Math.min(
-    Number(videoUpload.probe.duration) || 0,
+    Number((videoUpload || voiceUpload).probe.duration) || 0,
     LIMITS.maxDurationSeconds,
   );
   if (!Number.isFinite(duration) || duration <= 0.2) {
-    const error = new Error("The video duration could not be read.");
+    const error = new Error("The project duration could not be read.");
     error.status = 422;
     throw error;
   }
@@ -441,14 +438,14 @@ async function createProject(body) {
 
   const extension = (upload) =>
     upload.extension || extensionFor(upload.filename, upload.role);
-  const videoName = `video.${extension(videoUpload)}`;
+  const videoName = videoUpload ? `video.${extension(videoUpload)}` : null;
   const musicName = `music.${extension(musicUpload)}`;
   const voiceSourceName = voiceUpload
     ? `voice-source.${extension(voiceUpload)}`
     : null;
 
   try {
-    await moveIntoProject(
+    if (videoUpload) await moveIntoProject(
       { ...videoUpload, file: join(UPLOAD_DIR, `${videoUpload.id}.bin`), metaFile: join(UPLOAD_DIR, `${videoUpload.id}.json`) },
       id,
       videoName,
@@ -498,12 +495,13 @@ async function createProject(body) {
     const now = new Date().toISOString();
     const project = {
       id,
-      name: safeName(body.name, "Untitled Reel"),
+      kind: videoUpload ? "video" : "audio",
+      name: safeName(body.name, videoUpload ? "Untitled Reel" : "Untitled Mix"),
       createdAt: now,
       updatedAt: now,
       duration,
       source: {
-        video: {
+        video: videoUpload ? {
           originalName: videoUpload.filename,
           stored: videoName,
           size: videoUpload.size,
@@ -511,7 +509,7 @@ async function createProject(body) {
           height: videoUpload.probe.video?.height ?? null,
           codec: videoUpload.probe.video?.codec ?? null,
           hasAudio: videoUpload.probe.hasAudio,
-        },
+        } : null,
         music: {
           originalName: musicUpload.filename,
           stored: musicName,
@@ -676,7 +674,7 @@ async function handleApi(req, res, url) {
     const settings = sanitizeSettings(body.settings || {}, project.settings);
     const source = project.source.voice
       ? projectPath(projectId, project.source.voice.stored)
-      : projectPath(projectId, project.media.video);
+      : projectPath(projectId, project.media.voiceWav);
     const samples = await decodePcm16k(source, project.duration);
     const detection = await detectSpeech(samples, detector);
     const detected = segmentsFromProbabilities(
@@ -719,6 +717,10 @@ async function handleApi(req, res, url) {
   if (action === "export" && method === "POST") {
     const body = await readJsonBody(req);
     const format = body.format === "wav" || body.format === "mp3" ? body.format : "mp4";
+    if (format === "mp4" && !project.media.video) {
+      sendError(res, 422, "Audio-only projects support WAV or MP3 export. Choose an audio format.", "audio_only_export");
+      return;
+    }
     const job = jobs.enqueue(project, {
       format,
       normalize: Boolean(body.normalize),
@@ -856,7 +858,9 @@ async function handleStatic(req, res, url) {
     return;
   }
 
-  await serveFile(req, res, index, { cache: "no-cache" });
+  // The app uses hash routing, so the server only needs to serve "/" and real
+  // files. Returning index.html for unknown paths would create soft 404s.
+  sendError(res, 404, "Page not found", "not_found");
 }
 
 const server = http.createServer(async (req, res) => {

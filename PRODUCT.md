@@ -28,7 +28,7 @@ Local-first for the MVP: uploaded media, extracted audio, projects, and renders 
 
 ## Capabilities and Constraints
 
-- Upload video (required), background music (required), and optional separate voiceover.
+- Choose video + music with optional voiceover, or an audio-only voice + music project. Audio-only duration comes from the voice track and supports WAV/MP3; video projects also support MP4.
 - Probe media with ffprobe; reject unsupported files and enforce a 250 MB per-file / 10 minute duration limit.
 - Detect speech with Silero VAD through ONNX Runtime when the model is present, with a built-in energy/spectral detector as the offline fallback.
 - Store VAD frame probabilities so sensitivity and pause-merging can be re-evaluated without re-analyzing the file.
@@ -37,6 +37,10 @@ Local-first for the MVP: uploaded media, extracted audio, projects, and renders 
 - Live Web Audio preview synchronized to the video, with a ducked/bypassed before-after comparison.
 - Trim the uploaded music using waveform handles or exact seconds. The selected source section loops/cuts to video duration at original speed and pitch, with consistent preview, seeking, timeline waveform, saved settings and native export. Existing projects use the full track by default.
 - Render MP4 (H.264 copy when compatible, transcode fallback; AAC 192 kbps), WAV, and MP3 through native FFmpeg, with progress, cancellation, output verification, and cleanup.
+- Independent music fade-in/out and opt-in smooth looping with the same sample-fitting rules in preview/export.
+- Session-local grouped undo/redo for settings, selection and speech edits; restored snapshots autosave.
+- Voice/music solo and mute auditioning (preview only).
+- Four built-in ducking presets preserve music selection, finishing and detection settings.
 - Optional single-pass EBU R128 loudness normalization for export.
 - Not in this version: cloud storage, accounts, collaboration, saved presets, batch processing, public API, multiple music beds, AI source separation, or speech-to-text.
 

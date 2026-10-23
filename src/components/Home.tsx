@@ -282,6 +282,7 @@ export function Home({
   onCreated: (project: Project) => void;
   onOpenProject: (id: string) => void;
 }) {
+  const [mode, setMode] = useState<"video" | "audio">("video");
   const [slots, setSlots] = useState<Slots>(EMPTY_SLOTS);
   const [errors, setErrors] = useState<Partial<Record<SlotKind, string>>>({});
   const [dragging, setDragging] = useState<SlotKind | null>(null);
@@ -354,9 +355,9 @@ export function Home({
   };
 
   const handleCreate = async () => {
-    const video = slots.video;
+    const video = mode === "video" ? slots.video : null;
     const music = slots.music;
-    if (!video || !music || busy) return;
+    if (!music || (mode === "video" ? !video : !slots.voice) || busy) return;
 
     setGlobalError("");
     setStage("uploading");
@@ -371,49 +372,28 @@ export function Home({
     };
 
     try {
-      const tasks: Promise<unknown>[] = [
-        uploadFile(video.file, "video", (progress) => setProgress("video", progress)).then(
-          (result) => {
-            video.uploadId = result.uploadId;
-            return result;
-          },
-        ),
-        uploadFile(music.file, "music", (progress) => setProgress("music", progress)).then(
-          (result) => {
-            music.uploadId = result.uploadId;
-            return result;
-          },
-        ),
-      ];
-
-      if (slots.voice) {
-        const voice = slots.voice;
-        tasks.push(
-          uploadFile(voice.file, "voice", (progress) => setProgress("voice", progress)).then(
-            (result) => {
-              voice.uploadId = result.uploadId;
-              return result;
-            },
-          ),
-        );
-      }
-
-      const [videoResult, , voiceResult] = (await Promise.all(tasks)) as Array<
-        { uploadId: string; hasAudio?: boolean } | undefined
-      >;
-
-      if (!videoResult?.hasAudio && !voiceResult) {
-        throw new Error(
-          "This video has no audio track. Add a separate voiceover, or choose a video with sound.",
-        );
+      const [videoResult] = await Promise.all([
+        video ? uploadFile(video.file, "video", (progress) => setProgress("video", progress)).then((result) => {
+          video.uploadId = result.uploadId;
+          return result;
+        }) : Promise.resolve(null),
+        uploadFile(music.file, "music", (progress) => setProgress("music", progress)).then((result) => {
+          music.uploadId = result.uploadId;
+        }),
+        slots.voice ? uploadFile(slots.voice.file, "voice", (progress) => setProgress("voice", progress)).then((result) => {
+          slots.voice!.uploadId = result.uploadId;
+        }) : Promise.resolve(null),
+      ]);
+      if (video && !videoResult?.hasAudio && !slots.voice) {
+        throw new Error("This video has no audio track. Add a separate voiceover, or choose a video with sound.");
       }
 
       setStage("analyzing");
       setStatus("Finding the speech");
 
       const project = await createProject({
-        name: deriveProjectName(video.file.name),
-        videoUploadId: video.file ? video.uploadId! : "",
+        name: deriveProjectName((video ?? slots.voice!).file.name),
+        videoUploadId: video?.uploadId ?? null,
         musicUploadId: music.uploadId!,
         voiceUploadId: slots.voice?.uploadId ?? null,
       });
@@ -430,7 +410,7 @@ export function Home({
     }
   };
 
-  const isReady = Boolean(slots.video && slots.music) && !busy;
+  const isReady = Boolean(slots.music && (mode === "video" ? slots.video : slots.voice)) && !busy;
   const canDrop = (kind: SlotKind) => !busy && !slots[kind];
 
   return (
@@ -468,7 +448,7 @@ export function Home({
             in <span className="accent">one click.</span>
           </h1>
           <p className="hero-copy">
-            Let your voice lead. Add a video and a music track, lower the music
+            Let your voice lead. Add a video or voice track with music, lower the music
             around speech, and fine-tune the mix before you export.
           </p>
           <p className="project-origin">
@@ -481,15 +461,19 @@ export function Home({
             <div className="upload-head">
               <div>
                 <h2>Start your mix</h2>
-                <p>Upload a video and background music. Our speech-aware AI handles the ducking.</p>
+                <p>{mode === "video" ? "Upload a video and background music." : "Upload a voice track and background music. Your voice sets the mix duration."} Our speech-aware AI handles the ducking.</p>
               </div>
               <span className="upload-badge">
                 <WaveIcon size={14} /> Speech-aware
               </span>
             </div>
 
+            <div className="upload-actions" role="group" aria-label="Project type">
+              <button type="button" className={mode === "video" ? "button" : "ghost-button"} aria-pressed={mode === "video"} disabled={busy} onClick={() => { setMode("video"); setGlobalError(""); }}>Video</button>
+              <button type="button" className={mode === "audio" ? "button" : "ghost-button"} aria-pressed={mode === "audio"} disabled={busy} onClick={() => { setMode("audio"); setGlobalError(""); }}>Audio</button>
+            </div>
             <div className="slot-grid">
-              <Slot
+              {mode === "video" ? <Slot
                 kind="video"
                 icon={<FilmIcon size={17} />}
                 title="Video"
@@ -502,7 +486,20 @@ export function Home({
                 onDrop={(file) => void handleFile("video", file)}
                 onDragState={(active) => setDragging(active ? "video" : null)}
                 onRemove={() => setSlot("video", null)}
-              />
+              /> : <Slot
+                kind="voice"
+                icon={<MicIcon size={17} />}
+                title="Voice track"
+                hint="MP3, WAV, M4A · up to 10 min"
+                value={slots.voice}
+                error={errors.voice}
+                disabled={busy}
+                dragging={dragging === "voice"}
+                onPick={(file) => void handleFile("voice", file)}
+                onDrop={(file) => void handleFile("voice", file)}
+                onDragState={(active) => setDragging(active ? "voice" : null)}
+                onRemove={() => setSlot("voice", null)}
+              />}
               <Slot
                 kind="music"
                 icon={<MusicIcon size={17} />}
@@ -519,7 +516,7 @@ export function Home({
               />
             </div>
 
-            <div
+            {mode === "video" && <div
               className={`voice-row${slots.voice ? " is-filled" : ""}${dragging === "voice" ? " is-dragging" : ""}`}
               onDragOver={(event) => {
                 event.preventDefault();
@@ -584,7 +581,7 @@ export function Home({
                 </label>
               )}
               {errors.voice && <p className="slot-error voice-error">{errors.voice}</p>}
-            </div>
+            </div>}
 
             {globalError && (
               <div className="form-error" role="alert">
@@ -703,6 +700,48 @@ export function Home({
             </figure>
           </div>
         </section>
+
+        <section className="faq" id="faq" aria-labelledby="faq-title">
+          <div className="faq-head">
+            <h2 id="faq-title">Frequently asked questions</h2>
+            <p>Everything you need to know about automatic audio ducking.</p>
+          </div>
+          <div className="faq-list">
+            <details className="faq-item">
+              <summary>What is automatic audio ducking?</summary>
+              <p>
+                Automatic audio ducking lowers background music when someone is
+                speaking. AudioDuck Studio uses speech-aware AI to detect spoken
+                words and builds an editable volume curve, so you don't have to
+                draw keyframes by hand.
+              </p>
+            </details>
+            <details className="faq-item">
+              <summary>Is AudioDuck Studio free?</summary>
+              <p>
+                Yes. AudioDuck Studio is a source-available project by JUHENZA,
+                free for noncommercial use. No account is required, and your
+                files stay on your machine.
+              </p>
+            </details>
+            <details className="faq-item">
+              <summary>Which video and audio formats are supported?</summary>
+              <p>
+                You can upload MP4, MOV, WebM, MKV, AVI, and OGV video files,
+                plus MP3, WAV, M4A, AAC, OGG, FLAC, Opus, and AIFF audio.
+              </p>
+            </details>
+            <details className="faq-item">
+              <summary>Does it work for podcasts, Reels, and YouTube videos?</summary>
+              <p>
+                Yes. AudioDuck Studio works for Instagram Reels, YouTube videos,
+                podcasts, course lessons, and marketing videos. Upload your video
+                and music, and the AI handles the ducking.
+              </p>
+            </details>
+          </div>
+        </section>
+
         <section className="juhenza-section" aria-labelledby="juhenza-title">
           <div className="juhenza-intro">
             <h2 id="juhenza-title">A free tool for your next video.<br /><span>A partner for your next idea.</span></h2>

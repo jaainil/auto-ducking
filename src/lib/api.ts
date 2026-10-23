@@ -63,7 +63,7 @@ export async function getProject(id: string): Promise<Project> {
 
 export async function createProject(body: {
   name: string;
-  videoUploadId: string;
+  videoUploadId?: string | null;
   musicUploadId: string;
   voiceUploadId?: string | null;
 }): Promise<Project> {

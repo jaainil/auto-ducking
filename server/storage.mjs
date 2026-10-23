@@ -139,6 +139,7 @@ export async function listProjects() {
 export function projectSummary(project) {
   return {
     id: project.id,
+    kind: project.source?.video || project.media?.video ? "video" : "audio",
     name: project.name,
     duration: project.duration,
     createdAt: project.createdAt,
@@ -174,7 +175,7 @@ export async function cleanupUploads(maxAgeMs = 24 * 60 * 60 * 1000) {
 }
 
 export function mediaUrl(projectId, filename) {
-  return `/media/${projectId}/${encodeURIComponent(basename(filename))}`;
+  return filename ? `/media/${projectId}/${encodeURIComponent(basename(filename))}` : null;
 }
 
 export function downloadFilename(project, format) {
@@ -186,3 +187,16 @@ export function downloadFilename(project, format) {
 }
 
 export { basename, join };
+
+export function validateProjectUploads(body) {
+  const videoUploadId = body?.videoUploadId ?? null;
+  const musicUploadId = body?.musicUploadId;
+  const voiceUploadId = body?.voiceUploadId ?? null;
+  if (!isSafeId(musicUploadId) || (videoUploadId !== null && !isSafeId(videoUploadId)) || (voiceUploadId !== null && !isSafeId(voiceUploadId))) {
+    throw Object.assign(new Error("Choose valid media uploads to start."), { status: 400 });
+  }
+  if (!videoUploadId && !voiceUploadId) {
+    throw Object.assign(new Error("Add a voice track and background music for an audio mix."), { status: 400 });
+  }
+  return { videoUploadId, musicUploadId, voiceUploadId };
+}

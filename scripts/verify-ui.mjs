@@ -1,4 +1,8 @@
 import { chromium } from 'playwright-core';
+if (process.argv.includes('--release')) {
+  await import('./smoke.mjs');
+  process.exit(0);
+}
 import { readFile, mkdir } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 const browser = await chromium.launch({executablePath:process.env.CHROME_PATH || '/usr/bin/google-chrome',headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-crash-reporter']});

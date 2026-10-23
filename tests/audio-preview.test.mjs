@@ -29,7 +29,7 @@ function player() {
   const engine = new PreviewAudio();
   const sources = [];
   const gainNodes = [];
-  const context = {currentTime:1,destination:{},resume:async()=>{},createGain:()=>{
+  const context = {createBuffer:(channels,length,sampleRate)=>{ const data=Array.from({length:channels},()=>new Float32Array(length)); return {numberOfChannels:channels,length,sampleRate,duration:length/sampleRate,getChannelData:index=>data[index]}; },currentTime:1,destination:{},resume:async()=>{},createGain:()=>{
     const node = {gain:new GainParam(()=>context.currentTime),connect(){},disconnect(){this.disconnected=true;}};
     gainNodes.push(node);
     return node;
@@ -42,7 +42,7 @@ function player() {
   // public transport and automation with strict AudioParam scheduling semantics.
   const musicGain = context.createGain();
   const gain = musicGain.gain;
-  Object.assign(engine,{context,musicGain,voiceGain:{},voiceBuffer:{duration:10},musicBuffer:{duration:3},duration:10});
+  Object.assign(engine,{context,musicGain,voiceGain:context.createGain(),musicMonitor:context.createGain(),voiceBuffer:{duration:10},musicBuffer:{duration:3},duration:10});
   engine.setAutomation(new Float32Array(2000).fill(.25),-12,false);
   return {engine,gain,context,sources,gainNodes};
 }
@@ -96,4 +96,57 @@ test('changing automation immediately after a seek preserves the seek position',
   assert.equal(engine.currentTime,5);
   assert.doesNotThrow(()=>engine.setAutomation(new Float32Array(2000).fill(.2),-12,true));
   assert.equal(engine.currentTime,5);
+});
+
+
+test('smooth loops use one bounded cycle, preserve dialogue and seek phase', async () => {
+  const {engine,context,sources}=player();
+  const channel=Float32Array.from({length:300},(_,i)=>i/300);
+  engine.musicBuffer={duration:3,sampleRate:100,numberOfChannels:1,getChannelData:()=>channel};
+  await engine.play();
+  context.currentTime=2;
+  engine.setMusicSettings({musicStartSeconds:1,musicEndSeconds:2,loopCrossfadeMs:200,musicFadeInMs:1000,musicFadeOutMs:2000});
+  assert.equal(sources[0].stopped,undefined);
+  assert.equal(engine.fittedBuffer.length,80);
+  assert.ok(Math.abs(engine.fittedBuffer.getChannelData(0)[0]-.6)<1e-6);
+  engine.pause();
+  await engine.play(7.5);
+  assert.ok(Math.abs(sources.at(-1).started[1]-.3)<1e-6);
+  engine.setAutomation(new Float32Array(2000).fill(.1),0,true);
+  assert.equal(engine.gainAt(0),0);
+  assert.equal(engine.gainAt(10),0);
+  assert.equal(engine.gainAt(5),1,'Original bypasses ducking but preserves project fades');
+});
+
+test('monitor solo and mute change audition gain without restarting sources', async()=>{
+ const {engine,sources}=player();
+ await engine.play();
+ engine.setMonitor({voiceMuted:false,musicMuted:false,voiceSolo:true,musicSolo:false});
+ assert.equal(engine.voiceGain.gain.value,1);
+ assert.equal(engine.musicMonitor.gain.value,0);
+ engine.setMonitor({voiceMuted:false,musicMuted:true,voiceSolo:true,musicSolo:true});
+ assert.equal(engine.musicMonitor.gain.value,0,'mute wins when both stems solo');
+ assert.equal(sources.length,2);
+ assert.ok(sources.every(source=>!source.stopped));
+});
+
+test('long selected songs materialize only the timeline prefix and seek without looping', async()=>{
+ const {engine,context,sources}=player();
+ engine.duration=30;
+ engine.voiceBuffer={duration:30};
+ const channel=Float32Array.from({length:12000},(_,i)=>i/12000);
+ engine.musicBuffer={duration:1200,sampleRate:10,numberOfChannels:1,getChannelData:()=>channel};
+ let allocations=0;
+ const createBuffer=context.createBuffer;
+ context.createBuffer=(...args)=>{allocations++;return createBuffer(...args);};
+ engine.setMusicSettings({loopCrossfadeMs:1000});
+ assert.equal(engine.fittedBuffer.length,300,'buffer allocation is capped to project frames');
+ assert.ok(engine.fittedBuffer.getChannelData(0)[0]>.99,'prefix retains tail/head overlap at project start');
+ const fitted=engine.fittedBuffer;
+ engine.setMusicSettings({loopCrossfadeMs:1000,musicFadeInMs:2000});
+ assert.equal(engine.fittedBuffer,fitted,'fade changes do not rebuild fitted audio');
+ assert.equal(allocations,1);
+ await engine.play(21.5);
+ assert.equal(sources.at(-1).loop,false);
+ assert.equal(sources.at(-1).started[1],21.5);
 });

@@ -1,0 +1,9 @@
+node_modules
+data
+output
+.git
+.gitignore
+*.log
+Dockerfile
+.dockerignore
+render.yaml

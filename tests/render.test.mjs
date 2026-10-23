@@ -60,6 +60,28 @@ test('native media pipeline: detection, exact ducking, MP4/WAV/MP3, normalizatio
       }
       assert.ok(!(await readdir(dir)).some(name=>name.startsWith('music-selection-')));
     });
+    await t.test('audio-only fades and smooth cycles match shared samples', async () => {
+      const {resolveMusicFit,fittedMusicSample,musicFadeAt}=await import('../shared/music.js');
+      await runFfmpeg(['-f','lavfi','-i','aevalsrc=0.1+0.1*t|0.1+0.1*t:s=48000:d=1',join(dir,'ramp.wav')]);
+      const settings={...project.settings,reductionDb:0,loopCrossfadeMs:200,musicFadeInMs:1000,musicFadeOutMs:1000};
+      const audio={...project,segments:[],media:{...project.media,video:null,music:'ramp.wav'},source:{music:{duration:1}},settings};
+      await assert.rejects(renderProject(audio,{format:'mp4',jobId:'no-video'}),/video/i);
+      const output=await renderProject(audio,{format:'wav',jobId:'smooth-fade'});
+      const samples=await decodePcm16k(join(dir,'exports',output.file));
+      const fit=resolveMusicFit(settings,1);
+      const source=Float32Array.from({length:48000},(_,i)=>.1+.1*i/48000);
+      // Limiter has its usual small attack lookahead; constant ramps are checked
+      // away from transitions, with tolerance for PCM and filter resampling.
+      for(const time of [.1,.5,.9,1.3,2.1,3.5,3.9]) {
+        const actual=samples[Math.round(time*16000)];
+        const expected=fittedMusicSample(source,48000,time,fit)*musicFadeAt(time,4,settings);
+        assert.ok(Math.abs(actual-expected)<.006,`${time}: ${actual} vs ${expected}`);
+      }
+      for(const boundary of [.8,1.6,2.4,3.2]) {
+        const i=Math.round(boundary*16000);
+        assert.ok(Math.abs(samples[i+1]-samples[i-1])<.003,'crossfade boundary is continuous');
+      }
+    });
     await t.test('honors cancellation before processing', async () => {
       await assert.rejects(renderProject(project,{format:'wav',jobId:'cancelled'},{cancelled:()=>true}), RenderCancelled);
     });

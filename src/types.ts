@@ -21,6 +21,9 @@ export interface DuckingSettings {
   padMs: number;
   musicStartSeconds: number;
   musicEndSeconds: number;
+  musicFadeInMs: number;
+  musicFadeOutMs: number;
+  loopCrossfadeMs: number;
 }
 
 export interface VadData {
@@ -38,7 +41,7 @@ export interface ProjectSource {
     height: number | null;
     codec: string | null;
     hasAudio: boolean;
-  };
+  } | null;
   music: {
     originalName: string;
     stored: string;
@@ -72,6 +75,7 @@ export interface ExportRecord {
 }
 
 export interface Project {
+  kind: "video" | "audio";
   id: string;
   name: string;
   createdAt: string;
@@ -79,13 +83,13 @@ export interface Project {
   duration: number;
   source: ProjectSource;
   media: {
-    video: string;
+    video: string | null;
     voiceWav: string;
     voicePreview: string;
     music: string;
   };
   mediaUrls: {
-    video: string;
+    video: string | null;
     voicePreview: string;
     music: string;
   };
@@ -99,6 +103,7 @@ export interface Project {
 }
 
 export interface ProjectSummary {
+  kind: "video" | "audio";
   id: string;
   name: string;
   duration: number;
