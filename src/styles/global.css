@@ -276,6 +276,48 @@ body {
   padding: 0 var(--space-md) var(--space-xl);
 }
 
+.home-brand-group { display: flex; flex-direction: column; gap: 2px; }
+.brand-parent { margin-left: 40px; font-size: 11px; color: var(--tertiary); line-height: 1.4; }
+.brand-parent strong { font-weight: 600; letter-spacing: 0.06em; }
+.juhenza-nav { border: 1px solid var(--line); font-size: var(--text-label-md); white-space: nowrap; }
+.project-origin { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 20px; margin: 20px 0 0; font-size: var(--text-body-sm); color: var(--tertiary); }
+.project-origin span, .project-origin a { display: inline-flex; align-items: center; gap: 6px; }
+.project-origin a { color: var(--primary); }
+.juhenza-section { position: relative; z-index: 1; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 64px; margin-top: 90px; padding: 56px 0 10px; border-top: 1px solid var(--line); }
+.juhenza-intro h2 { margin: 0; font-size: clamp(28px, 3vw, 38px); font-weight: 400; line-height: 1.16; letter-spacing: -0.025em; text-wrap: balance; }
+.juhenza-intro h2 span { color: var(--primary); }
+.juhenza-intro > p { max-width: 57ch; margin: 20px 0 0; color: var(--tertiary); }
+.juhenza-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 24px; margin-top: 28px; }
+.juhenza-actions .text-link { display: inline-flex; align-items: center; gap: 8px; }
+.juhenza-intro .juhenza-brief-note { font-size: var(--text-body-sm); margin-top: 14px; }
+.juhenza-services { align-self: center; }
+.juhenza-services > a { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.juhenza-services > a:first-child { padding-top: 0; }
+.juhenza-services strong { display: block; font-weight: 500; color: var(--on-surface); font-size: 17px; }
+.juhenza-services span span { display: block; color: var(--tertiary); font-size: var(--text-body-md); margin-top: 4px; }
+.juhenza-services svg { flex: none; color: var(--primary); transition: transform 180ms ease; }
+.juhenza-services > a:hover svg { transform: translateX(4px); }
+.home-footer a { color: var(--primary); }
+.footer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.footer-meta a { display: inline-flex; align-items: center; gap: 6px; }
+.home a { text-underline-offset: 4px; }
+.brand-parent:hover, .home-footer a:hover, .project-origin a:hover { text-decoration: underline; }
+
+@media (max-width: 1000px) {
+  .home-topbar .local-chip { display: none; }
+  .juhenza-section { gap: 36px; }
+}
+@media (max-width: 700px) {
+  .home-topbar { flex-wrap: wrap; gap: 14px; }
+  .home-topbar .topbar-actions { width: 100%; justify-content: space-between; gap: 10px; }
+  .home-topbar .text-link { font-size: 12px; white-space: nowrap; }
+  .home-topbar .juhenza-nav { padding: 8px 0; font-size: 12px; border: 0; gap: 6px; }
+  .juhenza-section { grid-template-columns: 1fr; margin-top: 60px; padding-top: 36px; }
+  .juhenza-actions { align-items: flex-start; flex-direction: column; }
+  .juhenza-actions .primary { white-space: normal; text-align: left; }
+  .project-origin { column-gap: 14px; }
+}
+
 .dot-sphere {
   position: absolute;
   color: var(--primary);

@@ -1,5 +1,9 @@
 # AudioDuck Studio
 
+A source-available project by [JUHENZA](https://juhenza.com/), free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). [Explore the source](https://github.com/jaainil/auto-ducking), or [talk to JUHENZA about custom software, SaaS and AI automation](https://juhenza.com/contact).
+
+The license permits noncommercial purposes and the other uses specified in its terms. Commercial use requires separate permission; [contact JUHENZA](https://juhenza.com/contact) to discuss it.
+
 Local React audio-ducking editor with Silero VAD, Web Audio playback, editable speech regions, and native FFmpeg exports. Uses the supplied Context.dev visual system with self-hosted Rethink Sans and Doto fonts.
 
 ## Run

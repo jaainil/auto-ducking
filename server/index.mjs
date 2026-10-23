@@ -1,5 +1,6 @@
 import http from "node:http";
 import { createReadStream } from "node:fs";
+import { createGzip } from "node:zlib";
 import {
   mkdir,
   open,
@@ -163,6 +164,17 @@ async function serveFile(req, res, file, { download = null, cache = "no-store" }
     headers["Content-Disposition"] = `attachment; filename="${download.replace(/"/g, "")}"`;
   }
 
+  // Compress text assets to improve Core Web Vitals. Media files stream raw
+  // because gzip would break seeking/range requests.
+  const textExtensions = new Set(["html", "css", "js", "mjs", "json", "svg", "txt", "xml"]);
+  const acceptsGzip = req.headers["accept-encoding"]?.includes("gzip");
+  const useGzip = textExtensions.has(extension) && acceptsGzip;
+
+  if (useGzip) {
+    headers["Content-Encoding"] = "gzip";
+    headers["Vary"] = "Accept-Encoding";
+  }
+
   const range = readRange(req.headers.range, info.size);
   if (range?.invalid) {
     res.writeHead(416, { ...headers, "Content-Range": `bytes */${info.size}` });
@@ -171,6 +183,9 @@ async function serveFile(req, res, file, { download = null, cache = "no-store" }
   }
 
   if (range) {
+    // Range requests are for media; never gzip them.
+    delete headers["Content-Encoding"];
+    delete headers["Vary"];
     res.writeHead(206, {
       ...headers,
       "Content-Range": `bytes ${range.start}-${range.end}/${info.size}`,
@@ -184,12 +199,22 @@ async function serveFile(req, res, file, { download = null, cache = "no-store" }
     return;
   }
 
-  res.writeHead(200, { ...headers, "Content-Length": info.size });
-  if (req.method === "HEAD") {
-    res.end();
-    return;
+  if (useGzip) {
+    // Omit Content-Length when gzipping so the server can use chunked encoding.
+    res.writeHead(200, headers);
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    createReadStream(file).pipe(createGzip()).pipe(res);
+  } else {
+    res.writeHead(200, { ...headers, "Content-Length": info.size });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    createReadStream(file).pipe(res);
   }
-  createReadStream(file).pipe(res);
 }
 
 async function receiveUpload(req, res, role) {

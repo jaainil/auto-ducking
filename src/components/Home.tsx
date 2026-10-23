@@ -437,9 +437,12 @@ export function Home({
     <div className="app home">
       <header className="topbar">
         <div className="topbar-inner home-topbar">
-          <a className="brand-link" href="#/" aria-label="AudioDuck Studio home">
-            <Brand />
-          </a>
+          <div className="home-brand-group">
+            <a className="brand-link" href="#/" aria-label="AudioDuck Studio home">
+              <Brand />
+            </a>
+            <a className="brand-parent" href="https://juhenza.com/">by <strong>JUHENZA</strong></a>
+          </div>
           <div className="topbar-actions">
             <span className="local-chip">
               <LockIcon size={14} />
@@ -448,6 +451,8 @@ export function Home({
             <a className="text-link" href="#how">
               How it works
             </a>
+            <a className="text-link source-link" href="https://github.com/jaainil/auto-ducking">Source code</a>
+            <a className="button juhenza-nav" href="https://juhenza.com/contact">Work with JUHENZA <ArrowRightIcon size={15} /></a>
           </div>
         </div>
       </header>
@@ -463,16 +468,20 @@ export function Home({
             in <span className="accent">one click.</span>
           </h1>
           <p className="hero-copy">
-            Add a reel and a track. AudioDuck finds every spoken word, eases the
-            music under it, and hands you the curve to adjust — before you
-            export.
+            Let your voice lead. Add a video and a music track, lower the music
+            around speech, and fine-tune the mix before you export.
+          </p>
+          <p className="project-origin">
+            <span><CheckIcon size={15} /> Free for noncommercial use</span>
+            <span>No account required</span>
+            <a href="https://juhenza.com/">Built by JUHENZA <ArrowRightIcon size={14} /></a>
           </p>
 
           <div className="upload-shell">
             <div className="upload-head">
               <div>
-                <h2>Start a mix</h2>
-                <p>Bring a video and a music bed. We handle the rest.</p>
+                <h2>Start your mix</h2>
+                <p>Upload a video and background music. Our speech-aware AI handles the ducking.</p>
               </div>
               <span className="upload-badge">
                 <WaveIcon size={14} /> Speech-aware
@@ -649,11 +658,11 @@ export function Home({
 
         <section className="proof" id="how" aria-labelledby="proof-title">
           <div className="proof-copy">
-            <h2 id="proof-title">The curve does the work.</h2>
+            <h2 id="proof-title">How speech-aware audio ducking works</h2>
             <p>
-              A compressor guesses from loudness. AudioDuck detects where speech
-              actually happens, then builds a decibel-accurate volume envelope
-              you can see and edit.
+              A compressor guesses from loudness. AudioDuck's speech-aware AI
+              detects where speech actually happens, then builds a
+              decibel-accurate volume envelope you can see and edit.
             </p>
             <ul className="proof-points">
               <li>
@@ -661,7 +670,7 @@ export function Home({
                   <WaveIcon size={17} />
                 </span>
                 <span>
-                  <strong>Speech-aware regions</strong>
+                  <strong>AI speech detection</strong>
                   Silero VAD finds the words; silence stays silent.
                 </span>
               </li>
@@ -694,15 +703,36 @@ export function Home({
             </figure>
           </div>
         </section>
+        <section className="juhenza-section" aria-labelledby="juhenza-title">
+          <div className="juhenza-intro">
+            <h2 id="juhenza-title">A free tool for your next video.<br /><span>A partner for your next idea.</span></h2>
+            <p>AudioDuck Studio is a source-available project by JUHENZA,
+              free for noncommercial use under the <a className="text-link" href="https://github.com/jaainil/auto-ducking/blob/main/LICENSE">PolyForm Noncommercial license</a>.
+              Need software built around your own workflow? We build custom
+              applications, SaaS platforms, and AI automation for businesses.</p>
+            <div className="juhenza-actions">
+              <a className="button primary" href="https://juhenza.com/contact">Tell us what you want to build <ArrowRightIcon size={17} /></a>
+              <a className="text-link" href="https://juhenza.com/work">Explore our work <ArrowRightIcon size={15} /></a>
+            </div>
+            <p className="juhenza-brief-note">Start with your users, your workflow, and the problem you want to solve.</p>
+          </div>
+          <div className="juhenza-services">
+            <a href="https://juhenza.com/services/web-development"><span><strong>Custom web applications</strong><span>Purpose-built tools for the way your business works.</span></span><ArrowRightIcon size={20} /></a>
+            <a href="https://juhenza.com/services/saas-development"><span><strong>SaaS product development</strong><span>Turn a product idea into software people can use.</span></span><ArrowRightIcon size={20} /></a>
+            <a href="https://juhenza.com/services/ai-intelligent-automation"><span><strong>AI &amp; workflow automation</strong><span>Connect your knowledge, systems, and everyday tasks.</span></span><ArrowRightIcon size={20} /></a>
+          </div>
+        </section>
       </main>
 
       <footer className="home-footer">
         <div className="home-footer-inner">
           <span>
-            AudioDuck Studio <span className="muted">· local-first audio ducking</span>
+            AudioDuck Studio <span className="muted">· a project by </span><a href="https://juhenza.com/">JUHENZA</a>
           </span>
           <span className="footer-meta">
-            MP4 · WAV · MP3 <span className="muted">· no account required</span>
+            <a href="https://github.com/jaainil/auto-ducking/blob/main/LICENSE">PolyForm Noncommercial</a>
+            <a href="https://github.com/jaainil/auto-ducking">View source</a>
+            <a href="https://juhenza.com/contact">Start a project <ArrowRightIcon size={14} /></a>
           </span>
         </div>
       </footer>

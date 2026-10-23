@@ -7,9 +7,27 @@
     <meta name="theme-color" content="#ffffff" />
     <meta
       name="description"
-      content="AudioDuck Studio finds every spoken word and fades your music around it. Preview the curve live, then export with native FFmpeg."
+      content="Auto-duck background music under speech with speech-aware AI. Preview the editable volume curve live, then export MP4, WAV, or MP3. Local-first."
     />
+    <meta name="keywords" content="automatic audio ducking, auto duck music, speech-aware ducking, music ducking for video, podcast audio editing, YouTube music ducking, Instagram reels audio, voiceover music mixing, FFmpeg audio ducking, Silero VAD" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://juhenza.com/" />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://juhenza.com/" />
+    <meta property="og:title" content="AudioDuck Studio — Automatic Audio Ducking for Videos, Reels & Podcasts" />
+    <meta property="og:description" content="Auto-duck background music under speech with speech-aware AI. Preview the editable volume curve live, then export MP4, WAV, or MP3. Local-first." />
+    <meta property="og:image" content="https://juhenza.com/studio-still-life.webp" />
+    <meta property="og:site_name" content="AudioDuck Studio" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AudioDuck Studio — Automatic Audio Ducking" />
+    <meta name="twitter:description" content="Auto-duck music under speech with speech-aware AI. Preview and export." />
+    <meta name="twitter:image" content="https://juhenza.com/studio-still-life.webp" />
+
+    <!-- Preloads -->
     <link
       rel="preload"
       href="/fonts/rethink-latin.woff2"
@@ -24,7 +42,28 @@
       type="font/woff2"
       crossorigin
     />
-    <title>AudioDuck Studio — Auto-duck your music in one click</title>
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "AudioDuck Studio",
+      "description": "Speech-aware automatic music ducking for creators. Detect speech, build an editable volume curve, preview live, and export MP4, WAV, or MP3.",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Web",
+      "url": "https://juhenza.com/",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": "Speech detection (Silero VAD), automatic music ducking, editable volume curve, live preview, MP4/WAV/MP3 export, local-first processing",
+      "browserRequirements": "Requires a modern web browser"
+    }
+    </script>
+
+    <title>Auto-Duck Music for Videos &amp; Podcasts | AudioDuck Studio</title>
   </head>
   <body>
     <div id="root"></div>
