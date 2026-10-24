@@ -166,6 +166,7 @@ export function Timeline({
   duration,
   segments,
   settings,
+  duckingEnvelope,
   peaks,
   currentTime,
   selectedId,
@@ -178,6 +179,7 @@ export function Timeline({
   duration: number;
   segments: Segment[];
   settings: DuckingSettings;
+  duckingEnvelope?: Float32Array;
   peaks: Peaks | null;
   currentTime: number;
   selectedId: string | null;
@@ -196,11 +198,11 @@ export function Timeline({
 
   const envelope = useMemo(
     () => {
-      const curve = buildEnvelope(segments, settings, duration, ENVELOPE_RATE);
+      const curve = duckingEnvelope ? new Float32Array(duckingEnvelope) : buildEnvelope(segments, settings, duration, ENVELOPE_RATE);
       for (let i = 0; i < curve.length; i++) curve[i] *= musicFadeAt(i / ENVELOPE_RATE, duration, settings);
       return curve;
     },
-    [segments, settings, duration],
+    [segments, settings, duration, duckingEnvelope],
   );
 
   useEffect(() => {

@@ -85,6 +85,79 @@ test('native media pipeline: detection, exact ducking, MP4/WAV/MP3, normalizatio
     await t.test('honors cancellation before processing', async () => {
       await assert.rejects(renderProject(project,{format:'wav',jobId:'cancelled'},{cancelled:()=>true}), RenderCancelled);
     });
+    await t.test('adaptive Rust automation follows fitted source levels and matches exported music', async () => {
+      const {getAdaptiveLevels}=await import('../server/adaptive-levels.mjs');
+      const {adaptiveEnvelope}=await import('../server/adaptive-engine.mjs');
+      const {NEW_PROJECT_SETTINGS}=await import('../shared/ducking-settings.js');
+      await runFfmpeg(['-f','lavfi','-i','aevalsrc=0.1*sin(2*PI*220*t):s=48000:d=4',join(dir,'adaptive-voice.wav')]);
+      await runFfmpeg(['-f','lavfi','-i','aevalsrc=if(lt(t\\,2)\\,0.03\\,0.3)*sin(2*PI*440*t):s=48000:d=4',join(dir,'adaptive-music.wav')]);
+      const adaptive={...project,media:{video:null,voiceWav:'adaptive-voice.wav',music:'adaptive-music.wav'},source:{music:{duration:4}},settings:{...NEW_PROJECT_SETTINGS},segments:[{start:0,end:4,enabled:true}]};
+      const levels=await getAdaptiveLevels(adaptive);
+      assert.equal(levels.voiceRms.length,200);
+      const curve=await adaptiveEnvelope(adaptive.segments,adaptive.settings,4,1000,levels);
+      assert.ok(curve[3000]<curve[1000]-.3,'louder music should receive more reduction');
+      const output=await renderProject(adaptive,{format:'wav',jobId:'adaptive-parity',mastering:{enabled:false,preset:'youtube'}});
+      const samples=await decodePcm16k(join(dir,'exports',output.file));
+      const amplitude=(time)=>{let sine=0,cosine=0;for(let i=time*16000;i<(time+.1)*16000;i++){const phase=2*Math.PI*440*i/16000;sine+=samples[i]*Math.sin(phase);cosine+=samples[i]*Math.cos(phase);}return 2*Math.hypot(sine,cosine)/1600;};
+      for(const [time,source] of [[1,.03],[3,.3]]) {
+        // Native mono sources are panned to stereo at equal power before mixing.
+        const expected=source*Math.SQRT1_2*10**(-8/20)*curve[time*1000];
+        assert.ok(Math.abs(amplitude(time)-expected)<.0005,`${time}: measured ${amplitude(time)} vs ${expected}`);
+      }
+      const selected={...adaptive,settings:{...adaptive.settings,musicStartSeconds:2,musicEndSeconds:3,loopCrossfadeMs:100}};
+      const trimmed=await getAdaptiveLevels(selected);
+      assert.ok(trimmed.musicRms[75]>levels.musicRms[75]*5,'analysis must follow the selected loud section');
+      assert.ok(!(await readdir(dir)).some(name=>name.startsWith('adaptive-music-')));
+    });
+    for (const preset of ['reels','youtube','podcast','advertisements']) {
+      await t.test(`masters the final mix using the ${preset} recommendation`, async () => {
+        const output = await renderProject(project,{format:'wav',jobId:`master-${preset}`,mastering:{enabled:true,preset}});
+        assert.equal(output.mastering.preset,preset);
+        assert.equal(output.normalize,true);
+        assert.ok(Math.abs(output.mastering.after.integratedLufs-output.mastering.targets.integratedLufs)<=1);
+        assert.ok(output.mastering.after.truePeakDbtp<=output.mastering.targets.truePeakDbtp+.1);
+        assert.ok(output.mastering.before.integratedLufs < output.mastering.after.integratedLufs);
+        assert.equal(output.mastering.status,'passed');
+      });
+    }
+    await t.test('checks the encoded MP3 and MP4, retaining the chosen preset', async () => {
+      for (const format of ['mp3','mp4']) {
+        const output=await renderProject(project,{format,jobId:`master-${format}`,mastering:{enabled:true,preset:'youtube'}});
+        assert.ok(output.mastering.after.truePeakDbtp<=-1.4);
+        assert.ok(Math.abs(output.mastering.after.integratedLufs+14)<=1);
+        assert.equal(output.mastering.preset,'youtube');
+      }
+    });
+    await t.test('silent mixes receive an honest review result without nonfinite JSON', async () => {
+      const silent={...project,media:{...project.media,music:'voice.wav'}};
+      const output=await renderProject(silent,{format:'wav',jobId:'master-silence',mastering:{enabled:true,preset:'podcast'}});
+      assert.equal(output.mastering.status,'review');
+      assert.equal(output.mastering.after.integratedLufs,null);
+      assert.equal(output.mastering.after.truePeakDbtp,null);
+      assert.ok(!JSON.stringify(output).includes('Infinity'));
+    });
+    await t.test('rejects unknown mastering presets before producing an export', async () => {
+      await assert.rejects(renderProject(project,{format:'wav',jobId:'invalid-master',mastering:{enabled:true,preset:'unknown'}}),/preset/i);
+    });
+    await t.test('cancels loudness analysis and removes temporary files', async () => {
+      let analysing=false,cancelled=false;
+      await assert.rejects(renderProject(project,{format:'wav',jobId:'master-cancel',mastering:{enabled:true,preset:'youtube'}},{
+        progress:(_,stage)=>{analysing=stage==='Analyzing mix loudness';},
+        onChild:child=>{if(child&&analysing){cancelled=true;child.kill('SIGTERM');}},
+        cancelled:()=>cancelled,
+      }),RenderCancelled);
+      assert.ok(!(await readdir(dir)).some(name=>name.includes('master-cancel')));
+      assert.ok(!(await readdir(join(dir,'exports'))).some(name=>name.includes('master-cancel')));
+    });
+    for (const [stage, start, id] of [['Analyzing mix loudness',8,'analysis-callback'],['Checking mastered audio',80,'quality-callback']]) {
+      await t.test(`cancellation from ${stage.toLowerCase()} progress cleans up safely`, async () => {
+        await assert.rejects(renderProject(project,{format:'wav',jobId:id,mastering:{enabled:true,preset:'youtube'}},{
+          progress:(percent,current)=>{if(current===stage&&percent>start)throw new RenderCancelled();},
+        }),RenderCancelled);
+        assert.ok(!(await readdir(dir)).some(name=>name.includes(id)));
+        assert.ok(!(await readdir(join(dir,'exports'))).some(name=>name.includes(id)));
+      });
+    }
     await t.test('removes partial exports when verification is interrupted', async () => {
       await assert.rejects(renderProject(project,{format:'wav',jobId:'interrupted'},{progress:(_,stage)=>{if(stage==='Checking the export') throw new RenderCancelled();}}), RenderCancelled);
       assert.ok(!(await readdir(join(dir,'exports'))).includes('render-interrupted.wav'));

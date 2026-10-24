@@ -1,3 +1,4 @@
+import { buildAdaptiveEnvelope, ADAPTIVE_DEFAULTS } from "./adaptive.js";
 /**
  * Shared ducking engine. Used by the browser preview and the server-side
  * FFmpeg render so both consume the exact same automation curve.
@@ -14,6 +15,8 @@
  */
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  ...ADAPTIVE_DEFAULTS,
+  duckingMode: "fixed",
   reductionDb: 12,
   baseMusicDb: -12,
   lookAheadMs: 80,
@@ -121,7 +124,8 @@ export function mergeSpeechSegments(segments, mergeGapSeconds, duration = Infini
  * @param {number} [rate] samples per second
  * @returns {Float32Array}
  */
-export function buildEnvelope(segments, settings, duration, rate = LIMITS.envelopeRate) {
+export function buildEnvelope(segments, settings, duration, rate = LIMITS.envelopeRate, levels = null) {
+  if (settings.duckingMode === "adaptive") return buildAdaptiveEnvelope(segments, settings, duration, rate, levels);
   if (!Number.isFinite(duration) || duration <= 0) {
     throw new Error("A positive project duration is required");
   }

@@ -5,10 +5,13 @@ node_modules/
 dist/
 dist-ssr/
 build/
+native/vad/target/
+native/adaptive/target/
 
 # Runtime data and generated artifacts
 data/
 output/
+.impeccable/review/
 
 # Code analysis data
 .ua/

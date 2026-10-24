@@ -93,8 +93,9 @@ try {
    assert.equal(await page.locator('details.track-timing').evaluate(element=>element.open),false);
    await page.locator('details.music-finishing > summary').click();
    for(const name of ['Music fade-in','Music fade-out','Smooth loop']) {const slider=page.getByRole('slider',{name,exact:true});await slider.press('Home');await slider.press('ArrowRight');await slider.press('ArrowRight');}
-   const preset=page.getByLabel('Mix preset');await preset.selectOption('gentle');
-   await page.getByRole('button',{name:'Undo',exact:true}).click();assert.equal(await preset.inputValue(),'clear-speech');
+   await page.getByRole('group',{name:'Ducking mode'}).getByRole('button',{name:'Fixed',exact:true}).click();
+   const preset=page.getByLabel('Mix preset');const previousPreset=await preset.inputValue();await preset.selectOption('gentle');
+   await page.getByRole('button',{name:'Undo',exact:true}).click();assert.equal(await preset.inputValue(),previousPreset);
    await page.getByRole('button',{name:'Redo',exact:true}).click();assert.equal(await preset.inputValue(),'gentle');
    for(const name of ['Solo voice','Mute voice','Solo music','Mute music']){const button=page.getByRole('button',{name,exact:true});await button.click();assert.equal(await button.getAttribute('aria-pressed'),'true');await button.click();}
    assert.equal(await page.getByRole('slider',{name:'Music fade-in',exact:true}).inputValue(),'100');

@@ -10,7 +10,7 @@ import { buildEnvelope, LIMITS } from "../shared/envelope.js";
  *
  * @param {string} command
  * @param {string[]} args
- * @param {{ collect?: boolean, maxBytes?: number, timeoutMs?: number, onStdout?: (chunk: Buffer) => void, onStderr?: (chunk: Buffer) => void }} [options]
+ * @param {{ collect?: boolean, maxBytes?: number, timeoutMs?: number, input?: Buffer, env?: Record<string, string>, onSpawn?: (child: import("node:child_process").ChildProcess) => void, onStdout?: (chunk: Buffer) => void, onStderr?: (chunk: Buffer) => void }} [options]
  */
 export function run(command, args, options = {}) {
   const {
@@ -24,11 +24,15 @@ export function run(command, args, options = {}) {
 
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, AV_LOG_FORCE_NOCOLOR: "1" },
+      stdio: [options.input ? "pipe" : "ignore", "pipe", "pipe"],
+      env: { ...process.env, ...options.env, AV_LOG_FORCE_NOCOLOR: "1" },
     });
 
     if (onSpawn) onSpawn(child);
+    if (options.input) {
+      child.stdin.on("error", () => {});
+      child.stdin.end(options.input);
+    }
 
     /** @type {Buffer[]} */
     const stdout = [];
@@ -36,6 +40,7 @@ export function run(command, args, options = {}) {
     const stderr = [];
     let outputBytes = 0;
     let settled = false;
+    let callbackError = null;
 
     const timer = setTimeout(() => {
       if (settled) return;
@@ -44,7 +49,13 @@ export function run(command, args, options = {}) {
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
-      if (onStdout) onStdout(chunk);
+      if (settled || callbackError) return;
+      try { if (onStdout) onStdout(chunk); }
+      catch (error) {
+        callbackError = error;
+        child.kill("SIGKILL");
+        return;
+      }
       if (collect) {
         outputBytes += chunk.length;
         if (outputBytes > maxBytes) {
@@ -61,7 +72,13 @@ export function run(command, args, options = {}) {
     });
 
     child.stderr.on("data", (chunk) => {
-      if (onStderr) onStderr(chunk);
+      if (settled || callbackError) return;
+      try { if (onStderr) onStderr(chunk); }
+      catch (error) {
+        callbackError = error;
+        child.kill("SIGKILL");
+        return;
+      }
       if (stderr.length < 400) stderr.push(chunk);
     });
 
@@ -76,6 +93,7 @@ export function run(command, args, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (callbackError) { reject(callbackError); return; }
       resolve({
         code: code ?? -1,
         signal: signal ?? null,
@@ -282,9 +300,9 @@ export async function extractVoiceTracks(source, outWav, outPreview, duration) {
  * @param {import("../shared/envelope.js").DuckingSettings} settings
  * @param {number} duration
  */
-export async function writeAutomationWav(file, segments, settings, duration) {
+export async function writeAutomationWav(file, segments, settings, duration, adaptiveEnvelope = null) {
   const rate = LIMITS.renderEnvelopeRate;
-  const envelope = buildEnvelope(segments, settings, duration, rate);
+  const envelope = adaptiveEnvelope ?? buildEnvelope(segments, settings, duration, rate);
   const frames = envelope.length;
   const byteCount = frames * 4;
   const wav = Buffer.alloc(44 + byteCount);

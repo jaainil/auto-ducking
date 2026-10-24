@@ -12,7 +12,13 @@
     "test": "node --test --test-isolation=none tests/*.test.mjs",
     "verify": "node scripts/verify-ui.mjs",
     "check:api": "node scripts/check-api.mjs",
-    "sample": "node scripts/make-sample.mjs"
+    "sample": "node scripts/make-sample.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "bench:vad": "node scripts/bench-vad.mjs",
+    "check:mastering": "node scripts/check-mastering.mjs",
+    "build:adaptive": "node scripts/build-adaptive.mjs",
+    "bench:adaptive": "node scripts/bench-adaptive.mjs",
+    "check:adaptive": "node scripts/check-adaptive.mjs"
   },
   "dependencies": {
     "onnxruntime-node": "^1.30.0",

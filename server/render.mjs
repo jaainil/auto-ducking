@@ -1,7 +1,12 @@
 import { mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { projectPath, downloadFilename } from "./storage.mjs";
-import { resolveMusicFit } from "../shared/music.js";
+import { prepareMusic } from "./music-preparation.mjs";
+import { getAdaptiveLevels } from "./adaptive-levels.mjs";
+import { adaptiveEnvelope } from "./adaptive-engine.mjs";
+import { LIMITS } from "../shared/envelope.js";
+import { resolveMastering, getMasteringPreset } from "../shared/mastering.js";
+import { analysisFilter, parseLoudness, masteringFilter, qualityReport } from "./mastering.mjs";
 import {
   probeMedia,
   runFfmpeg,
@@ -25,12 +30,14 @@ const FORMATS = {
  * Mix the voice and ducked music and, for MP4, keep the source video.
  *
  * @param {any} project
- * @param {{ format: "mp4"|"wav"|"mp3", normalize?: boolean, jobId: string }} options
+ * @param {{ format: "mp4"|"wav"|"mp3", normalize?: boolean, mastering?: { enabled: boolean, preset: string }, jobId: string }} options
  * @param {{ progress?: (percent: number, stage: string) => void, onChild?: (child: import("node:child_process").ChildProcess | null) => void, cancelled?: () => boolean }} context
  */
 export async function renderProject(project, options, context = {}) {
   const format = FORMATS[options.format];
   if (!format) throw new Error("Choose MP4, WAV, or MP3");
+  const mastering = resolveMastering(options);
+  const preset = getMasteringPreset(mastering.preset);
 
   if (options.format === "mp4" && !project.media.video) throw new Error("MP4 requires a video source");
 
@@ -53,27 +60,19 @@ export async function renderProject(project, options, context = {}) {
   };
 
   try {
+    let adaptive = null;
+    if (project.settings.duckingMode === "adaptive") {
+      progress(2, "Analyzing source audio levels");
+      const levels = await getAdaptiveLevels(project, project.settings, context);
+      adaptive = await adaptiveEnvelope(project.segments, project.settings, duration, LIMITS.renderEnvelopeRate, levels);
+    }
     progress(3, "Building the automation curve");
-    await writeAutomationWav(automation, project.segments, project.settings, duration);
+    await writeAutomationWav(automation, project.segments, project.settings, duration, adaptive);
 
     const videoPath = project.media.video ? projectPath(project.id, project.media.video) : null;
     const voicePath = projectPath(project.id, project.media.voiceWav);
-    let musicPath = projectPath(project.id, project.media.music);
-    const sourceDuration = project.source?.music?.duration ?? (await probeMedia(musicPath)).duration;
-    const trim = resolveMusicFit(project.settings, sourceDuration);
-    if (trim.start > 0 || trim.end < sourceDuration - 0.0001 || trim.overlap > 0) {
-      progress(5, "Preparing selected music");
-      const selection = `atrim=start=${trim.start}:end=${trim.end},asetpts=PTS-STARTPTS,aresample=48000`;
-      const x = trim.overlap;
-      const filters = x > 0
-        ? `[0:a]${selection},asplit=3[head][tail][middle];[tail]atrim=start=${trim.length-x},asetpts=PTS-STARTPTS[t];[head]atrim=end=${x},asetpts=PTS-STARTPTS[h];[t][h]acrossfade=d=${x}:c1=tri:c2=tri[blend];[middle]atrim=start=${x}:end=${trim.length-x},asetpts=PTS-STARTPTS[m];[blend][m]concat=n=2:v=0:a=1[out]`
-        : `[0:a]${selection}[out]`;
-      await runFfmpeg([
-        "-i", musicPath, "-filter_complex", filters, "-map", "[out]",
-        "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", selectedMusic,
-      ], { onSpawn: child => context.onChild?.(child) });
-      musicPath = selectedMusic;
-    }
+    progress(5, "Preparing selected music");
+    const { musicPath } = await prepareMusic(project, selectedMusic, context);
 
     const includeVideo = options.format === "mp4";
     const voiceIndex = includeVideo ? 1 : 0;
@@ -88,19 +87,6 @@ export async function renderProject(project, options, context = {}) {
       `[music][gain]amultiply[ducked]`,
       `[voice][ducked]amix=inputs=2:duration=longest:normalize=0[mix]`,
     ];
-
-    if (options.normalize) {
-      graphs.push(
-        `[mix]loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000[normalized]`,
-      );
-      graphs.push(
-        `[normalized]alimiter=limit=0.891:level=0,atrim=0:${duration},asetpts=N/SR/TB[out]`,
-      );
-    } else {
-      graphs.push(
-        `[mix]alimiter=limit=0.891:level=0,atrim=0:${duration},asetpts=N/SR/TB[out]`,
-      );
-    }
 
     const inputs = includeVideo
       ? [
@@ -151,6 +137,30 @@ export async function renderProject(project, options, context = {}) {
       output,
     ];
 
+    const timeoutMs = Math.max(120_000, duration * 4_000 + 60_000);
+    const processOptions = { timeoutMs, onSpawn: child => context.onChild?.(child) };
+    let before = null;
+    let masteringReport = null;
+    let peakCeiling = preset.truePeakDbtp - 0.5;
+    if (mastering.enabled) {
+      progress(8, "Analyzing mix loudness");
+      const analysis = await runFfmpeg([
+        ...inputs, "-loglevel", "info", "-filter_complex",
+        [...graphs, `[mix]${analysisFilter(preset)}[analysis]`].join(";"),
+        "-map", "[analysis]", "-t", String(duration),
+        "-progress", "pipe:1", "-nostats", "-f", "null", "-",
+      ], { ...processOptions, onProgress: seconds => {
+        if (Number.isFinite(seconds)) progress(8 + Math.min(1, seconds / duration) * 22, "Analyzing mix loudness");
+      } });
+      context.onChild?.(null);
+      before = parseLoudness(analysis.stderr);
+    }
+    const finishGraph = () => `[mix]${mastering.enabled
+      ? masteringFilter(preset, before, peakCeiling)
+      : "alimiter=limit=0.891:level=0"},aresample=48000,atrim=0:${duration},asetpts=N/SR/TB[out]`;
+    graphs.push(finishGraph());
+    let renderStart = mastering.enabled ? 32 : 8;
+    let renderSpan = mastering.enabled ? 46 : 82;
     const runAttempt = async (copyVideo) => {
       const args = [
         ...inputs,
@@ -181,12 +191,12 @@ export async function renderProject(project, options, context = {}) {
       }
 
       await runFfmpeg(args, {
-        timeoutMs: Math.max(120_000, duration * 4_000 + 60_000),
+        timeoutMs,
         onSpawn: (child) => context.onChild?.(child),
         onProgress: (seconds) => {
           if (!Number.isFinite(seconds)) return;
           const ratio = Math.min(1, seconds / duration);
-          progress(8 + ratio * 82, "Mixing and rendering");
+          progress(renderStart + ratio * renderSpan, mastering.enabled ? "Mastering and rendering" : "Mixing and rendering");
         },
       });
       context.onChild?.(null);
@@ -194,24 +204,53 @@ export async function renderProject(project, options, context = {}) {
 
     if (context.cancelled?.()) throw new RenderCancelled();
 
-    if (includeVideo) {
-      try {
-        progress(8, "Mixing and rendering");
-        await runAttempt(true);
-      } catch (error) {
-        if (error instanceof RenderCancelled || context.cancelled?.()) {
-          throw new RenderCancelled();
+    const renderOutput = async () => {
+      if (includeVideo) {
+        try {
+          progress(renderStart, mastering.enabled ? "Mastering and rendering" : "Mixing and rendering");
+          await runAttempt(true);
+        } catch (error) {
+          if (error instanceof RenderCancelled || context.cancelled?.()) {
+            throw new RenderCancelled();
+          }
+          await rm(output, { force: true });
+          progress(renderStart, "Transcoding the source video");
+          await runAttempt(false);
         }
-        await rm(output, { force: true });
-        progress(10, "Transcoding the source video");
+      } else {
+        progress(renderStart, mastering.enabled ? "Mastering and rendering" : "Mixing and rendering");
         await runAttempt(false);
       }
-    } else {
-      progress(8, "Mixing and rendering");
-      await runAttempt(false);
+    };
+    await renderOutput();
+
+    if (mastering.enabled) {
+      const measureOutput = async (start, span) => {
+        progress(start, "Checking mastered audio");
+        const measured = await runFfmpeg([
+          "-loglevel", "info", "-i", output, "-map", "0:a:0", "-vn",
+          "-af", analysisFilter(preset), "-progress", "pipe:1", "-nostats", "-f", "null", "-",
+        ], { ...processOptions, onProgress: seconds => {
+          if (Number.isFinite(seconds)) progress(start + Math.min(1, seconds / duration) * span, "Checking mastered audio");
+        } });
+        context.onChild?.(null);
+        return parseLoudness(measured.stderr);
+      };
+      let after = await measureOutput(80, 7);
+      // Lossy codecs can add intersample peaks. Allow one measured correction.
+      if (after.truePeakDbtp !== null && after.truePeakDbtp > preset.truePeakDbtp + 0.1 && before.integratedLufs !== null) {
+        peakCeiling = Math.max(-9, peakCeiling - (after.truePeakDbtp - preset.truePeakDbtp) - 0.2);
+        graphs[graphs.length - 1] = finishGraph();
+        renderStart = 88;
+        renderSpan = 5;
+        progress(88, "Adding peak headroom");
+        await renderOutput();
+        after = await measureOutput(94, 3);
+      }
+      masteringReport = qualityReport(preset, before, after);
     }
 
-    progress(94, "Checking the export");
+    progress(mastering.enabled ? 98 : 94, "Checking the export");
     const info = await probeMedia(output);
     const outputSize = (await stat(output)).size;
 
@@ -232,13 +271,16 @@ export async function renderProject(project, options, context = {}) {
       size: outputSize,
       duration: info.duration,
       format: format.extension,
-      normalize: Boolean(options.normalize),
+      normalize: mastering.enabled,
+      mastering: masteringReport,
       createdAt: new Date().toISOString(),
     };
   } catch (error) {
     await rm(output, { force: true });
+    if (context.cancelled?.()) throw new RenderCancelled();
     throw error;
   } finally {
+    context.onChild?.(null);
     await rm(automation, { force: true });
     await rm(selectedMusic, { force: true });
     context.onChild?.(null);

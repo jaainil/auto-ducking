@@ -16,6 +16,8 @@ import {
   startExport,
 } from "../lib/api";
 import { PreviewAudio } from "../lib/audioEngine";
+import { useAdaptiveDucking } from "../lib/useAdaptiveDucking";
+import { NEW_PROJECT_SETTINGS } from "../../shared/ducking-settings.js";
 import {
   addRegion,
   removeRegion,
@@ -36,6 +38,7 @@ import { buildEnvelope, DEFAULT_SETTINGS } from "../../shared/envelope.js";
 import type {
   DuckingSettings,
   ExportRecord,
+  MasteringOptions,
   Peaks,
   Project,
   RenderJob,
@@ -44,6 +47,7 @@ import type {
 import { Brand } from "./Brand";
 import { Timeline } from "./Timeline";
 import { MusicTrim } from "./MusicTrim";
+import { LoudnessMastering, LoudnessReport } from "./LoudnessMastering";
 import { resolveMusicTrim } from "../../shared/music.js";
 import { createHistory, recordHistory, undoHistory, redoHistory } from "../../shared/history.js";
 import { MIX_PRESETS, applyPreset } from "../../shared/presets.js";
@@ -114,6 +118,7 @@ function toExportRecord(job: RenderJob): ExportRecord | null {
     size: job.output.size,
     duration: job.output.duration,
     normalize: job.output.normalize,
+    mastering: job.output.mastering,
     createdAt: job.output.createdAt,
     downloadUrl: job.output.downloadUrl,
   };
@@ -160,7 +165,7 @@ export function Editor({
   const [copied, setCopied] = useState(false);
 
   const [format, setFormat] = useState<"mp4" | "wav" | "mp3">("mp4");
-  const [normalize, setNormalize] = useState(false);
+  const [mastering, setMastering] = useState<MasteringOptions>({ enabled: true, preset: "youtube" });
   const [exportJob, setExportJob] = useState<RenderJob | null>(null);
   const [exportStarting, setExportStarting] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -182,6 +187,7 @@ export function Editor({
   const historyActionRef = useRef(0);
 
   const duration = project?.duration ?? 0;
+  const adaptive = useAdaptiveDucking(project?.id, duration, settings, segments);
 
   const recoverPreview = useCallback(() => {
     const time = engineRef.current?.pause() ?? currentTimeRef.current;
@@ -197,8 +203,9 @@ export function Editor({
 
   const envelope = useMemo(() => {
     if (!settings || duration <= 0) return new Float32Array([1]);
+    if (settings.duckingMode === "adaptive") return adaptive.envelope ?? new Float32Array([1]);
     return buildEnvelope(segments, settings, duration, ENVELOPE_RATE);
-  }, [segments, duration, settings?.reductionDb, settings?.lookAheadMs, settings?.fadeDownMs, settings?.holdMs, settings?.releaseMs]);
+  }, [segments, duration, settings?.duckingMode, adaptive.envelope, settings?.reductionDb, settings?.lookAheadMs, settings?.fadeDownMs, settings?.holdMs, settings?.releaseMs]);
 
   const currentKey = useMemo(
     () => (settings ? keyFor(settings, segments) : ""),
@@ -275,6 +282,7 @@ export function Editor({
     setCurrentTime(0);
     setSelectedId(null);
     setExportJob(null);
+    setMastering({ enabled: true, preset: "youtube" });
     setExportError("");
     setAnalyzeError("");
     setSaveError("");
@@ -432,9 +440,13 @@ export function Editor({
     videoRef.current?.pause();
   }, []);
 
+  useEffect(() => {
+    if (!adaptive.profileReady || adaptive.error) pausePlayback();
+  }, [adaptive.profileReady, adaptive.error, pausePlayback]);
+
   const togglePlay = useCallback(async () => {
     const engine = engineRef.current;
-    if (!engine?.loaded || audioLoading) return;
+    if (!engine?.loaded || audioLoading || !adaptive.ready) return;
     if (playingRef.current) {
       pausePlayback();
       return;
@@ -471,7 +483,7 @@ export function Editor({
           : "Playback could not start. Try pressing play again.",
       );
     }
-  }, [audioLoading, pausePlayback]);
+  }, [audioLoading, pausePlayback, adaptive.ready]);
 
   togglePlayRef.current = () => {
     void togglePlay();
@@ -596,6 +608,7 @@ export function Editor({
       return;
     }
     if (currentKey === savedKeyRef.current) return;
+    setSaveState("saving");
 
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
@@ -758,7 +771,7 @@ export function Editor({
   };
 
   const handleExport = async () => {
-    if (!project || exportStarting) return;
+    if (!project || exportStarting || !adaptive.ready) return;
     if (exportJob && !terminalStatus(exportJob.status)) return;
     setExportStarting(true);
     setExportError("");
@@ -771,7 +784,7 @@ export function Editor({
         );
         return;
       }
-      const job = await startExport(project.id, { format, normalize });
+      const job = await startExport(project.id, { format, mastering });
       setExportJob(job);
     } catch (error) {
       setExportError(
@@ -1040,7 +1053,7 @@ export function Editor({
                     type="button"
                     className="transport-play"
                     onClick={() => void togglePlay()}
-                    disabled={audioLoading || Boolean(audioError)}
+                    disabled={audioLoading || Boolean(audioError) || !adaptive.ready}
                     aria-label={playing ? "Pause preview" : "Play preview"}
                     title={
                       audioLoading
@@ -1195,13 +1208,14 @@ export function Editor({
                 duration={duration}
                 segments={segments}
                 settings={settings}
+                duckingEnvelope={envelope}
                 peaks={peaks}
                 currentTime={currentTime}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 onSeek={seek}
                 onUpdateSegment={handleUpdateSegment}
-                loading={audioLoading}
+                loading={audioLoading || !adaptive.profileReady}
                 error={audioError}
               />
 
@@ -1229,13 +1243,13 @@ export function Editor({
                 <div className="timing-fields">
 
                 <SliderField
-                  label="Fade down"
+                  label={settings.duckingMode === "adaptive" ? "Attack" : "Fade down"}
                   value={settings.fadeDownMs}
                   min={40}
                   max={600}
                   step={10}
                   display={msLabel(settings.fadeDownMs)}
-                  hint="How quickly the music eases down before speech."
+                  hint={settings.duckingMode === "adaptive" ? "Smoothing time constant; the full change takes longer." : "How quickly the music eases down before speech."}
                   onChange={(value) =>
                     setSettings((current) =>
                       current ? { ...current, fadeDownMs: value } : current,
@@ -1380,6 +1394,7 @@ export function Editor({
                 </div>
 
                 {selectedSegment && (
+                  <>
                   <RegionInspector
                     key={selectedSegment.id}
                     segment={selectedSegment}
@@ -1390,6 +1405,11 @@ export function Editor({
                     }}
                     onRemove={() => handleRemoveSegment(selectedSegment.id)}
                   />
+                  {settings.duckingMode === "adaptive" && <div className="adaptive-region-override">
+                    <label className="checkbox-row"><input type="checkbox" checked={selectedSegment.reductionDb == null} onChange={event => setSegments(current => current.map(region => region.id === selectedSegment.id ? {...region,source:"manual",reductionDb:event.target.checked ? undefined : Math.min(9, settings.adaptiveMaxReductionDb)} : region))} /><span>Automatic region reduction<span className="checkbox-hint">Turn off to set a reduction for this region.</span></span></label>
+                    {selectedSegment.reductionDb != null && <SliderField label="Region reduction" value={Math.min(selectedSegment.reductionDb,settings.adaptiveMaxReductionDb)} min={0} max={settings.adaptiveMaxReductionDb} step={0.5} display={dbLabel(-Math.min(selectedSegment.reductionDb,settings.adaptiveMaxReductionDb))} hint="Respects the maximum reduction and smoothing. Near-silent voice is still gated." onChange={value => setSegments(current => current.map(region => region.id === selectedSegment.id ? {...region,source:"manual",reductionDb:value} : region))} />}
+                  </div>}
+                  </>
                 )}
               </div>
             </section>
@@ -1417,7 +1437,26 @@ export function Editor({
               </div>
 
 
-                <div className="preset-control">
+                <div className="adaptive-controls">
+                  <div className="adaptive-mode-row"><span>Ducking mode</span><div className="segmented" role="group" aria-label="Ducking mode">
+                    {(["adaptive","fixed"] as const).map(mode => <button key={mode} type="button" className={settings.duckingMode === mode ? "is-active" : ""} aria-pressed={settings.duckingMode === mode} onClick={() => setSettings(current => current ? {...current,duckingMode:mode} : current)}>{mode === "adaptive" ? "Adaptive" : "Fixed"}</button>)}
+                  </div></div>
+                  <p className="settings-note">{settings.duckingMode === "adaptive" ? "Reduction follows voice and source-music levels within your speech regions. The blue curve shows what you hear." : "Uses the same reduction throughout each speech region."}</p>
+                  {settings.duckingMode === "adaptive" && <>
+                    <div className="adaptive-analysis-state" role={adaptive.error ? "alert" : "status"}>
+                      {adaptive.error ? <>{adaptive.error} <button type="button" className="text-button" onClick={adaptive.retry}>Retry analysis</button></> : adaptive.waiting ? (adaptive.profileReady ? "Updating adaptive curve…" : "Measuring source audio…") : "Adaptive curve ready"}
+                    </div>
+                    <SliderField label="Target level gap" value={settings.adaptiveTargetGapDb} min={0} max={24} step={0.5} display={`${settings.adaptiveTargetGapDb} dB`} hint="Music aims this far below the voice during speech, within your limits." onChange={value=>setSettings(current=>current?{...current,adaptiveTargetGapDb:value}:current)} />
+                    <SliderField label="Maximum reduction" value={settings.adaptiveMaxReductionDb} min={0} max={36} step={0.5} display={dbLabel(-settings.adaptiveMaxReductionDb)} onChange={value=>setSettings(current=>current?{...current,adaptiveMaxReductionDb:value,adaptiveMinReductionDb:Math.min(current.adaptiveMinReductionDb,value)}:current)} />
+                    <details className="advanced-section adaptive-advanced"><summary>Adaptive tuning</summary>
+                      <SliderField label="Minimum reduction" value={settings.adaptiveMinReductionDb} min={0} max={settings.adaptiveMaxReductionDb} step={0.5} display={dbLabel(-settings.adaptiveMinReductionDb)} onChange={value=>setSettings(current=>current?{...current,adaptiveMinReductionDb:value}:current)} />
+                      <SliderField label="Level stability" value={settings.adaptiveHysteresisDb} min={0} max={6} step={0.25} display={`${settings.adaptiveHysteresisDb} dB`} hint="Ignores smaller changes in the requested reduction." onChange={value=>setSettings(current=>current?{...current,adaptiveHysteresisDb:value}:current)} />
+                      <SliderField label="Maximum change speed" value={settings.adaptiveMaxChangeDbPerSecond} min={1} max={120} step={1} display={`${settings.adaptiveMaxChangeDbPerSecond} dB/s`} hint="Limits volume movement in addition to attack and release." onChange={value=>setSettings(current=>current?{...current,adaptiveMaxChangeDbPerSecond:value}:current)} />
+                    </details>
+                    <p className="settings-note adaptive-disclaimer">RMS level comparison, not LUFS or a guarantee of intelligibility. Adjust by ear.</p>
+                  </>}
+                </div>
+                {settings.duckingMode === "fixed" && <><div className="preset-control">
                   <label htmlFor="mix-preset">Mix preset</label>
                   <select id="mix-preset" value={activePreset?.id ?? "custom"} onChange={event => {
                     historyGroupRef.current = { id: `preset:${++historyActionRef.current}`, at: Date.now() };
@@ -1442,6 +1481,7 @@ export function Editor({
                     )
                   }
                 />
+                </>}
                 <SliderField
                   label="Music level"
                   value={settings.baseMusicDb}
@@ -1561,7 +1601,7 @@ export function Editor({
                   <button
                     type="button"
                     className="button quiet small"
-                    onClick={() => setSettings(current => ({ ...DEFAULT_SETTINGS, musicStartSeconds: current?.musicStartSeconds ?? 0, musicEndSeconds: current?.musicEndSeconds ?? 0, musicFadeInMs: current?.musicFadeInMs ?? 0, musicFadeOutMs: current?.musicFadeOutMs ?? 0, loopCrossfadeMs: current?.loopCrossfadeMs ?? 0 }))}
+                    onClick={() => setSettings(current => ({ ...(current?.duckingMode === "fixed" ? DEFAULT_SETTINGS : NEW_PROJECT_SETTINGS), musicStartSeconds: current?.musicStartSeconds ?? 0, musicEndSeconds: current?.musicEndSeconds ?? 0, musicFadeInMs: current?.musicFadeInMs ?? 0, musicFadeOutMs: current?.musicFadeOutMs ?? 0, loopCrossfadeMs: current?.loopCrossfadeMs ?? 0 }))}
                   >
                     <ResetIcon size={13} />
                     Reset settings
@@ -1605,27 +1645,13 @@ export function Editor({
                     </p>
                   </div>
 
-                  <details className="advanced-section export-processing"><summary>Export processing</summary>
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={normalize}
-                      onChange={(event) => setNormalize(event.target.checked)}
-                    />
-                    <span>
-                      Normalize loudness
-                      <span className="checkbox-hint">
-                        EBU R128, −16 LUFS with a −1.5 dBTP ceiling.
-                      </span>
-                    </span>
-                  </label>
-                  </details>
+                  <LoudnessMastering value={mastering} onChange={setMastering} disabled={exportStarting || jobActive} />
 
                   <button
                     type="button"
                     className="button primary wide"
                     onClick={() => void handleExport()}
-                    disabled={exportStarting || jobActive}
+                    disabled={exportStarting || jobActive || !adaptive.ready}
                   >
                     {exportStarting
                       ? "Starting render…"
@@ -1694,7 +1720,7 @@ export function Editor({
                             <span className="download-meta">
                               {formatBytes(activeExport.size)} ·{" "}
                               {activeExport.format.toUpperCase()}
-                              {activeExport.normalize ? " · normalized" : ""}
+                              {activeExport.mastering ? ` · ${activeExport.mastering.presetName} mastered` : activeExport.normalize ? " · normalized" : ""}
                             </span>
                           </span>
                           <a
@@ -1706,6 +1732,7 @@ export function Editor({
                           </a>
                         </div>
                       )}
+                      {activeExport?.mastering && <LoudnessReport report={activeExport.mastering} />}
                     </div>
                   )}
                 </div>
@@ -1769,13 +1796,16 @@ export function Editor({
                   <div className="previous-exports">
                     <h3>Previous exports</h3>
                     {previousExports.slice(0, 4).map((entry) => (
-                      <div className="previous-export" key={entry.id}>
+                      <div key={entry.id}>
+                      <div className="previous-export">
                         <span className="export-name" title={entry.filename}>
                           {entry.filename}
                         </span>
                         <a href={entry.downloadUrl} download>
                           {formatBytes(entry.size)} · {formatDate(entry.createdAt)}
                         </a>
+                      </div>
+                      {entry.mastering && <details className="previous-mastering"><summary>{entry.mastering.presetName} mastering report · {entry.mastering.status === "passed" ? "Checks passed" : "Review suggested"}</summary><LoudnessReport report={entry.mastering} /></details>}
                       </div>
                     ))}
                   </div>

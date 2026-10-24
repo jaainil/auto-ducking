@@ -143,13 +143,20 @@ export function uploadFile(
 
 export async function startExport(
   projectId: string,
-  body: { format: "mp4" | "wav" | "mp3"; normalize: boolean },
+  body: { format: "mp4" | "wav" | "mp3"; normalize?: boolean; mastering?: import("../types").MasteringOptions },
 ): Promise<RenderJob> {
   const data = await request<{ job: RenderJob }>(
     `/api/projects/${projectId}/export`,
     { method: "POST", body: JSON.stringify(body) },
   );
   return data.job;
+}
+
+export async function getAdaptiveLevels(projectId: string, settings: Project["settings"], signal?: AbortSignal): Promise<import("../types").AdaptiveLevels> {
+  const data = await request<{ levels: import("../types").AdaptiveLevels }>(`/api/projects/${projectId}/adaptive-levels`, {
+    method: "POST", body: JSON.stringify({ settings }), signal,
+  });
+  return data.levels;
 }
 
 export async function getJob(jobId: string): Promise<RenderJob> {

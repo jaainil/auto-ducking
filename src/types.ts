@@ -6,9 +6,16 @@ export interface Segment {
   end: number;
   source: SegmentSource;
   enabled: boolean;
+  reductionDb?: number;
 }
 
 export interface DuckingSettings {
+  duckingMode: "fixed" | "adaptive";
+  adaptiveTargetGapDb: number;
+  adaptiveMinReductionDb: number;
+  adaptiveMaxReductionDb: number;
+  adaptiveHysteresisDb: number;
+  adaptiveMaxChangeDbPerSecond: number;
   reductionDb: number;
   baseMusicDb: number;
   lookAheadMs: number;
@@ -30,6 +37,12 @@ export interface VadData {
   engine: "silero" | "energy" | string;
   hopMs: number;
   probabilities: number[];
+}
+
+export interface AdaptiveLevels {
+  hopMs: number;
+  voiceRms: number[];
+  musicRms: number[];
 }
 
 export interface ProjectSource {
@@ -62,6 +75,29 @@ export interface ProjectAnalysis {
   speechDuration: number;
 }
 
+export type MasteringPresetId = "reels" | "youtube" | "podcast" | "advertisements";
+
+export interface MasteringOptions {
+  enabled: boolean;
+  preset: MasteringPresetId;
+}
+
+export interface LoudnessMeasurement {
+  integratedLufs: number | null;
+  truePeakDbtp: number | null;
+  loudnessRangeLu: number;
+}
+
+export interface MasteringReport {
+  preset: MasteringPresetId;
+  presetName: string;
+  targets: { integratedLufs: number; truePeakDbtp: number; loudnessRangeLu: number };
+  before: LoudnessMeasurement;
+  after: LoudnessMeasurement;
+  status: "passed" | "review";
+  checks: Array<{ id: string; label: string; status: "passed" | "review"; detail: string }>;
+}
+
 export interface ExportRecord {
   id: string;
   file: string;
@@ -70,6 +106,7 @@ export interface ExportRecord {
   size: number;
   duration: number;
   normalize: boolean;
+  mastering?: MasteringReport | null;
   createdAt: string;
   downloadUrl: string;
 }
@@ -138,6 +175,7 @@ export interface RenderJob {
   projectId: string;
   format: "mp4" | "wav" | "mp3";
   normalize: boolean;
+  mastering?: MasteringOptions;
   status: JobStatus;
   stage: string;
   progress: number;
@@ -151,6 +189,7 @@ export interface RenderJob {
     duration: number;
     format: string;
     normalize: boolean;
+    mastering?: MasteringReport | null;
     createdAt: string;
     downloadUrl: string;
   } | null;

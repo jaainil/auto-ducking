@@ -1,23 +1,55 @@
 import * as ort from "onnxruntime-node";
+import { access } from "node:fs/promises";
+import { constants } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { endianness } from "node:os";
+import { run } from "./media.mjs";
+
+const nativeBinary = fileURLToPath(new URL(`../native/vad/target/release/audioduck-vad${process.platform === "win32" ? ".exe" : ""}`, import.meta.url));
+const require = createRequire(import.meta.url);
+const runtimeName = process.platform === "win32" ? "onnxruntime.dll" : process.platform === "darwin" ? "libonnxruntime.dylib" : "libonnxruntime.so.1";
+const runtimePath = join(dirname(require.resolve("onnxruntime-node/package.json")), "bin", "napi-v6", process.platform, process.arch, runtimeName);
 
 const SAMPLE_RATE = 16000;
 const WINDOW = 512; // 32 ms at 16 kHz, the frame size Silero VAD v5 expects.
 const HOP_MS = 32;
+// Keep short jobs in-process: native startup can outweigh inference savings.
+const NATIVE_MIN_SAMPLES = SAMPLE_RATE * 300;
 
 /**
  * Load Silero VAD once for the process. If the model or runtime is missing,
  * the caller falls back to the local energy detector.
  * @param {string} modelPath
+ * @param {{ backend?: "auto" | "node" | "rust", nativePath?: string }} [options]
  */
-export async function loadVoiceDetector(modelPath) {
+export async function loadVoiceDetector(modelPath, options = {}) {
+  const backend = options.backend ?? process.env.VAD_BACKEND ?? "auto";
+  if (!["auto", "node", "rust"].includes(backend)) throw new Error("VAD_BACKEND must be auto, node or rust");
+  const nativePath = options.nativePath ?? process.env.VAD_NATIVE_PATH ?? nativeBinary;
+  let useNative = false;
+  if (backend !== "node") {
+    try {
+      await access(nativePath, constants.X_OK);
+      await access(runtimePath);
+      useNative = true;
+    } catch (error) {
+      if (backend === "rust") throw new Error(`Rust VAD unavailable: ${error.message}`);
+    }
+  }
   try {
     const session = await ort.InferenceSession.create(modelPath);
     return {
       engine: "silero",
       session,
       sr: new ort.Tensor("int64", BigInt64Array.from([16000n]), [1]),
+      nativePath: useNative ? nativePath : null,
+      modelPath,
+      backend,
     };
   } catch (error) {
+    if (backend === "rust") throw error;
     console.warn(
       `[vad] Silero VAD unavailable, using the local detector: ${error.message}`,
     );
@@ -30,9 +62,35 @@ export async function loadVoiceDetector(modelPath) {
  * @param {{ engine: string, session: import("onnxruntime-node").InferenceSession | null, sr?: import("onnxruntime-node").Tensor }} detector
  */
 export async function detectSpeech(samples, detector) {
+  if (detector.nativePath && (detector.backend === "rust" || samples.length >= NATIVE_MIN_SAMPLES)) {
+    try {
+      const input = endianness() === "LE"
+        ? Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)
+        : Buffer.allocUnsafe(samples.length * 4);
+      if (endianness() !== "LE") {
+        for (let i = 0; i < samples.length; i++) input.writeFloatLE(samples[i], i * 4);
+      }
+      const result = await run(detector.nativePath, [detector.modelPath], {
+        input,
+        env: { ORT_DYLIB_PATH: runtimePath },
+        maxBytes: Math.max(4, Math.ceil(samples.length / WINDOW) * 4),
+        timeoutMs: Math.max(30_000, samples.length / SAMPLE_RATE * 1000),
+      });
+      const frames = Math.ceil(samples.length / WINDOW);
+      if (result.code !== 0 || result.stdout.length !== frames * 4) throw new Error(`Rust VAD failed: ${result.stderr}`);
+      const probabilities = Array.from({ length: frames }, (_, i) => result.stdout.readFloatLE(i * 4));
+      if (probabilities.some(p => !Number.isFinite(p) || p < 0 || p > 1)) throw new Error("Rust VAD returned invalid probabilities");
+      return { engine: "silero", backend: "rust", hopMs: HOP_MS, probabilities };
+    } catch (error) {
+      if (detector.backend === "rust") throw error;
+      detector.nativePath = null;
+      console.warn(`[vad] Rust worker unavailable, using Node: ${error.message}`);
+    }
+  }
   if (detector.session) {
     return {
       engine: "silero",
+      backend: "node",
       hopMs: HOP_MS,
       probabilities: await runSilero(samples, detector),
     };

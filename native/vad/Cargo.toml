@@ -1,0 +1,14 @@
+[package]
+name = "audioduck-vad"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "PolyForm-Noncommercial-1.0.0"
+
+[dependencies]
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "load-dynamic"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

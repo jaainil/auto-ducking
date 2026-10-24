@@ -1,4 +1,6 @@
 node_modules
+native/vad/target
+native/adaptive/target
 data
 output
 .git

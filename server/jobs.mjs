@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PROJECT_DIR, newId, projectPath, readJson, writeJson } from "./storage.mjs";
 import { RenderCancelled, renderProject } from "./render.mjs";
+import { resolveMastering } from "../shared/mastering.js";
 
 const MAX_CONCURRENT = 1;
 
@@ -18,15 +19,17 @@ export class JobQueue extends EventEmitter {
 
   /**
    * @param {any} project
-   * @param {{ format: "mp4"|"wav"|"mp3", normalize?: boolean }} options
+   * @param {{ format: "mp4"|"wav"|"mp3", normalize?: boolean, mastering?: {enabled: boolean, preset: string} }} options
    */
   enqueue(project, options) {
+    const mastering = resolveMastering(options);
     const job = {
       id: newId("j"),
       projectId: project.id,
       projectName: project.name,
       format: options.format,
-      normalize: Boolean(options.normalize),
+      normalize: mastering.enabled,
+      mastering,
       status: "queued",
       stage: "Queued",
       progress: 0,
@@ -83,6 +86,7 @@ export class JobQueue extends EventEmitter {
       projectId: job.projectId,
       format: job.format,
       normalize: job.normalize,
+      mastering: job.mastering,
       status: job.status,
       stage: job.stage,
       progress: Math.round(job.progress),
@@ -130,6 +134,7 @@ export class JobQueue extends EventEmitter {
       const output = await renderProject(project, {
         format: job.format,
         normalize: job.normalize,
+        mastering: job.mastering,
         jobId: job.id,
       }, {
         progress: (percent, stage) => {
@@ -160,6 +165,7 @@ export class JobQueue extends EventEmitter {
         size: output.size,
         duration: output.duration,
         normalize: output.normalize,
+        mastering: output.mastering,
         createdAt: output.createdAt,
       });
       project.exports = project.exports.slice(0, 10);
@@ -212,6 +218,7 @@ export class JobQueue extends EventEmitter {
       projectId: job.projectId,
       format: job.format,
       normalize: job.normalize,
+      mastering: job.mastering,
       status: job.status,
       stage: job.stage,
       progress: Math.round(job.progress),

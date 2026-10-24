@@ -66,3 +66,124 @@ npm run verify -- --release
 It verifies the six features, video and audio-only flows, WAV/MP3 downloads, MP4 rejection without video, live playback regression and desktop/mobile layouts. It cleans up test services and media afterward. Existing user projects are not modified. Chromium passes; native Firefox remains unverified. Pure/native tests also cover fades, sample-level fitting, loop seam continuity, bounded preview memory, history branching and preset preservation.
 
 Generated supporting illustration and its full prompt: `output/imagegen/PROVENANCE.md`.
+
+## Rust speech processing
+
+Speech analysis automatically uses the Rust worker for clips of at least five
+minutes when built. Shorter clips use Node to avoid worker startup overhead. Rust runs the same
+Silero model and 32 ms frames, using the ONNX shared library already installed by
+`onnxruntime-node`. FFmpeg continues to handle decoding, mixing and export.
+Docker builds include the worker. For local development, install Rust using
+[rustup](https://rustup.rs), then run:
+
+```sh
+npm run build:native
+npm run dev
+```
+
+Restart the backend after building. Without the worker, analysis uses Node as
+before. `VAD_BACKEND=node` forces Node; `VAD_BACKEND=rust` requires Rust and reports
+worker errors instead of falling back. The default `auto` falls back to Node on
+worker failure. `VAD_NATIVE_PATH` optionally selects a custom worker executable.
+
+```sh
+npm run bench:vad
+```
+
+The benchmark compares three runs of 60 seconds of synthetic spoken audio and
+reports median detection time, including Rust process/model startup. These figures
+exclude upload, decoding and export. Build the worker before running the benchmark.
+`npm test` includes Rust parity checks when the binary exists, and skips those
+checks on Node-only installations. Fallback tests always run.
+Pass a duration to compare other clip lengths, e.g. `npm run bench:vad -- 300`.
+
+## Smart Loudness Mastering
+
+New exports start with mastering enabled and the YouTube preset selected. Choose
+Reels, YouTube, Podcast or Advertisements in Export, or switch mastering off to
+keep your mix levels with the existing peak protection. Preview plays the editable
+ducked mix; mastering applies to the downloaded export.
+
+| Recommendation | Loudness | True-peak ceiling | Suggested range |
+| --- | --- | --- | --- |
+| Reels | −14 LUFS | −1.5 dBTP | 7 LU |
+| YouTube | −14 LUFS | −1.5 dBTP | 11 LU |
+| Podcast | −16 LUFS | −1.5 dBTP | 7 LU |
+| Advertisements | −16 LUFS | −2 dBTP | 5 LU |
+
+These are creative starting points, **not official platform targets or delivery
+compliance guarantees**. For advertisements, check the actual delivery brief.
+
+The export analyzes the entire ducked mix, applies measured two-pass FFmpeg
+[loudnorm](https://ffmpeg.org/ffmpeg-filters.html#loudnorm) with dynamic normalization
+when needed, then measures the encoded file. It reserves peak headroom for lossy
+encoding and can render once more if measured peaks exceed the recommendation.
+Reports compare mix/export loudness, true peaks and range, and flag deviations or
+unmeasurable audio for review. Silence is never reported as successfully normalized.
+Checks allow ±1 LU loudness, 0.1 dB peak and 1 LU range tolerance; a review result
+keeps the download available. Reports and preset names remain in export history
+and survive a backend restart. Mastering adds analysis and verification passes,
+so it takes longer than an export with mastering disabled.
+
+`POST /api/projects/:id/export` accepts `mastering: { enabled: true, preset:
+"youtube" }` (also `reels`, `podcast`, `advertisements`). Omitting both mastering and
+legacy normalize options defaults to enabled YouTube; explicit legacy `normalize`
+booleans remain supported.
+
+After `npm run build`, run `npm run check:mastering` for the isolated Chrome/API
+check. It generates synthetic audio in temporary storage, exercises controls,
+exports, downloads, validation and restart persistence, cleans up its services and
+fixtures, and saves desktop/mobile captures in `.impeccable/review/`.
+
+## Adaptive ducking
+
+Adaptive is the default for new mixes. Existing projects without a saved ducking
+mode migrate to Adaptive at backend startup, preserving trims, regions, finishing
+controls and base music levels. Choose Fixed in Mixing to use a constant speech
+reduction; that explicit choice persists. The four earlier mix presets live in
+Fixed mode.
+
+Adaptive uses edited speech regions plus voice and unducked music RMS levels to
+request a relative level gap, subject to minimum/maximum reduction, near-silence
+gating, look-ahead, hold, attack/release smoothing, hysteresis and a gain-change
+speed limit. Start with a 10 dB gap and 2–18 dB reduction. These are mixing
+heuristics, **not LUFS targets or guarantees of speech intelligibility**. Preview
+and the timeline use the actual curve. Select a speech region to replace automatic
+reduction with an explicit value; overrides respect the cap and smoothing.
+
+A dependency-free Rust core compiles to one baseline WASM module used by a browser
+Web Worker and Node export. It runs on the CPU. Web Audio still applies the gain;
+FFmpeg still decodes and exports. Canonical stereo RMS is measured in a bounded
+stream at 48 kHz/20 ms, using the render-grade voice and the actual trimmed,
+looped/crossfaded music. Only small RMS profiles reach the browser. The core
+smooths 100 ms power windows and produces one 50 Hz dB curve, interpolated at
+200 Hz for preview and 1 kHz for export. Base gain and music fades apply once.
+Mastering, if enabled, processes the completed ducked mix afterward.
+
+Source analysis is cached. Trim/crossfade edits need fresh levels and pause
+adaptive playback until ready; gap, caps, timing and region edits recalculate in
+the Worker. Failed analysis offers Retry; stale curves cannot start playback or
+export. Abandoned requests cancel their FFmpeg children. At most two analysis jobs
+run, with eight waiting before a retryable busy response. Spectral masking and
+multiband ducking are future work; this release uses RMS + VAD.
+
+The WASM artifact ships in `public/wasm/adaptive_ducking.wasm`; ordinary local use
+does not need a Rust compiler. To rebuild it after changing the Rust core:
+
+```sh
+rustup target add wasm32-unknown-unknown
+npm run build:adaptive
+npm run build
+```
+
+Docker builds the WASM module from source. `npm run bench:adaptive` compares the
+JavaScript reference with Rust/WASM on 30-second, five-minute and ten-minute
+profiles; it measures envelope calculation including WASM copies, excluding RMS,
+worker messages, decoding and export. No whole-app speedup is implied. This app's
+media limit remains ten minutes.
+
+After building, `npm run check:adaptive` runs isolated Chrome/API checks for real
+WASM playback, live controls, undo/redo, region overrides, trims, export, Fixed-mode
+persistence and existing-project migration. It uses temporary synthetic media and
+storage, cleans its processes/files, and saves desktop/mobile evidence under
+`.impeccable/review/`.

@@ -38,6 +38,9 @@ import {
   probeMedia,
 } from "./media.mjs";
 import { detectSpeech, loadVoiceDetector } from "./vad.mjs";
+import { resolveMastering } from "../shared/mastering.js";
+import { NEW_PROJECT_SETTINGS, migrateDuckingSettings } from "../shared/ducking-settings.js";
+import { getAdaptiveLevels } from "./adaptive-levels.mjs";
 import { resolveMusicTrim } from "../shared/music.js";
 import {
   DEFAULT_SETTINGS,
@@ -57,6 +60,15 @@ const jobs = new JobQueue();
 
 await ensureStorage();
 await cleanupUploads();
+// One-time migration runs before the API accepts requests, preserving user edits.
+for (const summary of await listProjects()) {
+  if (!isSafeId(summary.id)) continue;
+  const project = await readJson(projectPath(summary.id, "project.json"));
+  if (project && project.settings?.duckingMode === undefined) {
+    project.settings = migrateDuckingSettings(project.settings);
+    await writeJson(projectPath(summary.id, "project.json"), project);
+  }
+}
 await jobs.restore();
 
 const detector = await loadVoiceDetector(
@@ -79,6 +91,11 @@ const SETTINGS_SCHEMA = {
   musicFadeInMs: [0, 10000],
   musicFadeOutMs: [0, 10000],
   loopCrossfadeMs: [0, 2000],
+  adaptiveTargetGapDb: [0, 24],
+  adaptiveMinReductionDb: [0, 36],
+  adaptiveMaxReductionDb: [0, 36],
+  adaptiveHysteresisDb: [0, 6],
+  adaptiveMaxChangeDbPerSecond: [1, 120],
 };
 
 function log(...args) {
@@ -334,7 +351,7 @@ function publicProject(project) {
   return {
     ...project,
     kind: project.source?.video || project.media?.video ? "video" : "audio",
-    settings: { ...DEFAULT_SETTINGS, ...project.settings },
+    settings: migrateDuckingSettings(project.settings),
     mediaUrls: {
       video: mediaUrl(project.id, project.media.video),
       voicePreview: mediaUrl(project.id, project.media.voicePreview),
@@ -355,11 +372,16 @@ async function loadProjectFull(id) {
 }
 
 function sanitizeSettings(input, base = DEFAULT_SETTINGS) {
-  const next = { ...DEFAULT_SETTINGS, ...base };
+  const next = migrateDuckingSettings(base);
+  if (input?.duckingMode !== undefined) {
+    if (!["fixed", "adaptive"].includes(input.duckingMode)) throw Object.assign(new Error("Choose Fixed or Adaptive ducking."), { status: 422 });
+    next.duckingMode = input.duckingMode;
+  }
   for (const [key, [min, max]] of Object.entries(SETTINGS_SCHEMA)) {
     const value = Number(input?.[key]);
     if (Number.isFinite(value)) next[key] = clamp(value, min, max);
   }
+  next.adaptiveMinReductionDb = Math.min(next.adaptiveMinReductionDb, next.adaptiveMaxReductionDb);
   return next;
 }
 
@@ -383,6 +405,7 @@ function sanitizeSegments(input, duration) {
         end: Math.round(safeEnd * 1000) / 1000,
         source: segment.source === "manual" ? "manual" : "vad",
         enabled: segment.enabled !== false,
+        ...(segment.reductionDb != null && Number.isFinite(Number(segment.reductionDb)) ? { reductionDb: clamp(Number(segment.reductionDb), 0, 36) } : {}),
       };
     })
     .filter(Boolean)
@@ -530,7 +553,7 @@ async function createProject(body) {
         voicePreview: "voice-preview.m4a",
         music: musicName,
       },
-      settings: { ...DEFAULT_SETTINGS },
+      settings: { ...NEW_PROJECT_SETTINGS },
       detected,
       segments,
       analysis: {
@@ -622,6 +645,32 @@ async function handleApi(req, res, url) {
   const project = await readJson(projectPath(projectId, "project.json"));
   if (!project) {
     sendError(res, 404, "Project not found", "not_found");
+    return;
+  }
+
+  if (project.settings?.duckingMode === undefined) {
+    project.settings = migrateDuckingSettings(project.settings);
+  }
+
+  if (action === "adaptive-levels" && method === "POST") {
+    const body = await readJsonBody(req);
+    const settings = sanitizeSettings(body.settings || {}, project.settings);
+    let abandoned = res.destroyed;
+    let activeChild = null;
+    const disconnect = () => {
+      if (res.writableEnded) return;
+      abandoned = true;
+      activeChild?.kill("SIGKILL");
+    };
+    res.once("close", disconnect);
+    try {
+      const levels = await getAdaptiveLevels(project, settings, {
+        cancelled: () => abandoned,
+        onChild: child => { activeChild = child; if (abandoned) child?.kill("SIGKILL"); },
+      });
+      if (!abandoned) sendJson(res, 200, { levels });
+    } catch (error) { if (!abandoned) throw error; }
+    finally { res.off("close", disconnect); }
     return;
   }
 
@@ -721,9 +770,18 @@ async function handleApi(req, res, url) {
       sendError(res, 422, "Audio-only projects support WAV or MP3 export. Choose an audio format.", "audio_only_export");
       return;
     }
+    let mastering;
+    try {
+      mastering = resolveMastering(body.mastering === undefined && body.normalize === undefined
+        ? { mastering: { enabled: true, preset: "youtube" } }
+        : body);
+    } catch (error) {
+      sendError(res, 422, error.message, "invalid_mastering");
+      return;
+    }
     const job = jobs.enqueue(project, {
       format,
-      normalize: Boolean(body.normalize),
+      mastering,
     });
     sendJson(res, 202, { job });
     return;
