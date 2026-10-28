@@ -65,6 +65,7 @@ export function buildAdaptiveEnvelope(segments, settings = {}, duration, rate = 
   function push(item) { let i=heap.length;heap.push(item);while(i){const p=(i-1)>>1;if(heap[p].value>=item.value)break;heap[i]=heap[p];i=p;}heap[i]=item; }
   function pop() { const last=heap.pop();if(!heap.length)return;let i=0;while(i*2+1<heap.length){let c=i*2+1;if(c+1<heap.length&&heap[c+1].value>heap[c].value)c++;if(heap[c].value<=last.value)break;heap[i]=heap[c];i=c;}heap[i]=last; }
   const targets = new Float64Array(count + 1);
+  const intentionalZero = new Uint8Array(count + 1);
   let voicePower=0, musicPower=0, active=0, nextOverride=0;
   for(let i=0;i<count;i++) {
     voicePower+=power(levels.voiceRms[i]); musicPower+=power(levels.musicRms[i]);
@@ -72,10 +73,24 @@ export function buildAdaptiveEnvelope(segments, settings = {}, duration, rate = 
     active+=diff[i];
     while(nextOverride<overrides.length&&overrides[nextOverride].start<=i)push(overrides[nextOverride++]);
     while(heap.length&&heap[0].end<=i)pop();
+    if (active > 0 && heap.length && heap[0].value === 0) intentionalZero[i] = 1;
     const window=Math.min(5,i+1);
     const v=Math.sqrt(Math.max(0,voicePower)/window);
     const m=Math.sqrt(Math.max(0,musicPower)/window)*musicFadeAt(i/50,duration,fades);
     if(active>0&&v>=10**(-55/20)) targets[i]=heap.length?heap[0].value:bound(20*Math.log10(Math.max(1e-12,m)/v)+base+gap,minimum,cap);
+  }
+  // A brief speech pause should not become a release followed by another
+  // attack. Bridge gaps too short for hold + recovery + anticipation, while
+  // retaining deliberate zero-reduction region overrides and real long pauses.
+  const bridgeFrames = look + hold + Math.ceil(release / 20);
+  for (let i = 1; i < count;) {
+    if (targets[i] !== 0 || targets[i - 1] === 0) { i++; continue; }
+    const start = i;
+    let explicit = false;
+    while (i < count && targets[i] === 0) { explicit ||= intentionalZero[i] === 1; i++; }
+    if (!explicit && i < count && i - start <= bridgeFrames) {
+      targets.fill(Math.max(targets[start - 1], targets[i]), start, i);
+    }
   }
   const anticipated=maximum(targets,0,look);
   const held=maximum(anticipated,hold,0);

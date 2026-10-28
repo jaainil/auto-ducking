@@ -58,15 +58,31 @@ fn calculate(voice:&[f64],music:&[f64],segments:&[f64],s:&[f64],out_count:usize)
     }
     overrides.sort_by_key(|r|r.start);
     let mut heap=BinaryHeap::<Override>::new();let mut targets=vec![0.0;count+1];
+    let mut intentional_zero = vec![false; count+1];
     let(mut vp,mut mp,mut active,mut next)=(0.0,0.0,0,0);
     for i in 0..count{
         vp+=power(voice[i]);mp+=power(music[i]);if i>=5{vp-=power(voice[i-5]);mp-=power(music[i-5]);}
         active+=diff[i];while next<overrides.len()&&overrides[next].start<=i{heap.push(overrides[next]);next+=1;}
         while heap.peek().is_some_and(|r|r.end<=i){heap.pop();}
+        intentional_zero[i] = active > 0 && heap.peek().is_some_and(|r|r.value == 0.0);
         let window=(i+1).min(5) as f64;let v=(vp.max(0.0)/window).sqrt();let time=i as f64/50.0;
         let fade=if fade_in>0.0{clamp(time/fade_in,0.0,1.0)}else{1.0}*if fade_out>0.0{clamp((duration-time)/fade_out,0.0,1.0)}else{1.0};
         let m=(mp.max(0.0)/window).sqrt()*fade;
         if active>0&&v>=0.0017782794100389228{targets[i]=heap.peek().map_or_else(||clamp(20.0*(m.max(1e-12)/v).log10()+base+gap,minimum,cap),|r|r.value);}
+    }
+    // Prevent short speech gaps from producing an audible rise/re-duck cycle.
+    // Explicit zero overrides remain intentional; longer pauses still release.
+    let bridge_frames = look + hold + (release / 20.0).ceil() as usize;
+    let mut i = 1;
+    while i < count {
+        if targets[i] != 0.0 || targets[i-1] == 0.0 { i += 1; continue; }
+        let start = i;
+        let mut explicit = false;
+        while i < count && targets[i] == 0.0 { explicit |= intentional_zero[i]; i += 1; }
+        if !explicit && i < count && i-start <= bridge_frames {
+            let level = targets[start-1].max(targets[i]);
+            targets[start..i].fill(level);
+        }
     }
     let held=maximum(&maximum(&targets,0,look),hold,0);let mut curve=vec![0.0;count+1];let mut accepted:f64=0.0;
     for i in 1..curve.len(){let target=held[i];if target==0.0||accepted==0.0||(target-accepted).abs()>=hysteresis{accepted=target;}
@@ -112,6 +128,17 @@ pub extern "C" fn generate_envelope(voice:usize,music:usize,count:usize,segments
 }
 #[cfg(test)]mod tests{
     use super::*;
+    #[test]
+    fn speech_pauses_do_not_create_music_swell_peaks() {
+        let settings = [7.0, 200.0, 20.0, 10.0, 2.0, 18.0, -8.0, 0.0, 36.0, 100.0, 200.0, 50.0, 500.0, 0.0, 0.0];
+        let voice = vec![0.1; 350];
+        let music = vec![10f64.powf(-13.0/20.0); 350];
+        let regions = [0.5, 2.0, 1.0, -1.0, 2.55, 3.5, 1.0, -1.0, 5.0, 5.5, 1.0, -1.0];
+        let curve = calculate(&voice, &music, &regions, &settings, 1400).unwrap();
+        let reduction = |i:usize| -20.0 * curve[i].log10();
+        for i in 400..510 { assert!(reduction(i) >= reduction(380) - 0.25); }
+        assert!(reduction(930) < 2.0);
+    }
     #[test]fn worked_example(){let s=[5.0,200.0,20.0,10.0,2.0,18.0,-8.0,0.0,36.0,0.0,200.0,50.0,500.0,0.0,0.0];let result=calculate(&vec![0.1;250],&vec![10f64.powf(-13.0/20.0);250],&[0.0,5.0,1.0,-1.0],&s,1000).unwrap();assert!((-20.0*result[800].log10()-9.0).abs()<0.01);}
     #[test]
     fn production_resampling_matches_decibel_interpolation() {

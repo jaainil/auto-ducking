@@ -49,3 +49,7 @@ cleanup, gain resampling parity, invalid settings and long-media resource bounds
 - Docker configuration builds WASM fromsource; Docker executable unavailable here,
   so the actual container build remains unverified. Linux native/WASM/app builds
   and actual isolated API/browser behavior are verified.
+
+- Final functional confirmation passed with captures disabled: API minimum bound
+  round-trip, intentional WASM download failure, Fixed-mode playback availability
+  during that failure, and successful Retry recovery. No later visual changes.

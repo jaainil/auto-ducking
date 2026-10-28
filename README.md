@@ -146,7 +146,10 @@ Fixed mode.
 Adaptive uses edited speech regions plus voice and unducked music RMS levels to
 request a relative level gap, subject to minimum/maximum reduction, near-silence
 gating, look-ahead, hold, attack/release smoothing, hysteresis and a gain-change
-speed limit. Start with a 10 dB gap and 2–18 dB reduction. These are mixing
+speed limit. Short speech pauses are bridged using the look-ahead, hold and release
+timings, preventing music from swelling between words and immediately ducking
+again. Longer pauses still fade back up; explicit zero-reduction overrides remain
+intentional. Start with a 10 dB gap and 2–18 dB reduction. These are mixing
 heuristics, **not LUFS targets or guarantees of speech intelligibility**. Preview
 and the timeline use the actual curve. Select a speech region to replace automatic
 reduction with an explicit value; overrides respect the cap and smoothing.

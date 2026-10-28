@@ -11,3 +11,14 @@ test('Rust WASM matches hand worked source equation, overrides, gates, and fades
 test('60 second varied source profile matches reference at render and preview rates',()=>{const levels=profile(60);for(let i=0;i<levels.voiceRms.length;i++){levels.voiceRms[i]=i%137<10?0:10**((-30+12*Math.sin(i/47))/20);levels.musicRms[i]=10**((-21+8*Math.sin(i/83))/20);}levels.musicRms[17]=NaN;levels.voiceRms[21]=Infinity;const segments=Array.from({length:24},(_,i)=>({start:i*2.5,end:i*2.5+1.8,enabled:i%7!==0,...(i%5===0?{reductionDb:i%19}:{})}));const settings={baseMusicDb:-8,lookAheadMs:173,holdMs:233,musicFadeInMs:1100,musicFadeOutMs:2200};const preview=compare(segments,settings,60,200,levels);const render=compare(segments,settings,60,1000,levels);for(let i=0;i<preview.length;i++)assert.equal(preview[i],render[i*5]);});
 test('invalid input is rejected and failed calls do not poison subsequent calls',()=>{for(const levels of [null,profile(4),{...profile(5),hopMs:10}])assert.throws(()=>engine.buildEnvelope([],{},5,200,levels),/profile/);assert.throws(()=>engine.buildEnvelope([],{},601,200,profile(5)),/duration/);assert.throws(()=>engine.buildEnvelope([],{},5,Infinity,profile(5)),/rate/);for(let i=0;i<10;i++)compare([{start:-1,end:1}],{},.037,1000,profile(.037));});
 test('raw ABI rejects unknown allocations and oversized counts without dereferencing',async()=>{const {instance}=await WebAssembly.instantiate(bytes,{});const wasm=instance.exports;assert.equal(wasm.generate_envelope(1,2,3,4,0,5,6,7),1);assert.equal(wasm.generate_envelope(0,0,30001,0,0,0,0,1),3);assert.equal(wasm.alloc_f64(600001),0);wasm.dealloc_f64(123,999);});
+
+test('Rust bridges short speech pauses without a music swell and preserves long fades',()=>{
+ const duration=7, levels=profile(duration);
+ const regions=[{start:.5,end:2},{start:2.55,end:3.5},{start:5,end:5.5}];
+ const settings={baseMusicDb:-8,lookAheadMs:100,fadeDownMs:50,holdMs:200,releaseMs:500,adaptiveHysteresisDb:0};
+ const curve=compare(regions,settings,duration,200,levels);
+ const reduction=time=>-20*Math.log10(curve[Math.round(time*200)]);
+ for(let t=2;t<2.55;t+=.02)assert.ok(reduction(t)>=reduction(1.9)-.25);
+ assert.ok(reduction(4.65)<2);
+ compare([{start:.5,end:3.5},{start:2,end:2.6,reductionDb:0}],settings,5,1000,profile(5));
+});

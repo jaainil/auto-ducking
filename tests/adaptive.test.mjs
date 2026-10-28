@@ -17,3 +17,17 @@ test('nonfinite input and settings stay bounded; fades enter target equation',()
 test('100 ms trailing mean-square window smooths a step in source music',()=>{const p=profile();p.musicRms.fill(gain(-40),0,100);const a=build(speech,{...settings,fadeDownMs:1,adaptiveMaxChangeDbPerSecond:120},5,200,p);assert.ok(db(a[400])<db(a[416]));assert.ok(db(a[416])<9);});
 test('hysteresis suppresses small steady level changes',()=>{const p=profile();p.musicRms.fill(gain(-12.6),125);const a=build(speech,{...settings,adaptiveHysteresisDb:1},5,200,p);assert.ok(Math.abs(db(a[900])-9)<.02);});
 test('fractional duration, clipping and extreme settings produce bounded finite curves',()=>{const duration=.037;const a=build([{start:-3,end:8}],{adaptiveMinReductionDb:80,adaptiveMaxReductionDb:5,lookAheadMs:1e9,holdMs:1e9,releaseMs:-20},duration,1000,profile(duration));assert.equal(a.length,37);assert.equal(a[0],1);assert.ok(a.every(x=>x>=gain(-5)&&x<=1));});
+
+test('short speech gaps do not create music swell peaks before the next phrase',()=>{
+  const duration=7;
+  const regions=[{start:.5,end:2},{start:2.55,end:3.5},{start:5,end:5.5}];
+  const curve=build(regions,{...settings,lookAheadMs:100},duration,200,profile(duration));
+  const before=db(curve[Math.round(1.9*200)]);
+  for(let t=2;t<2.55;t+=.02)assert.ok(db(curve[Math.round(t*200)])>=before-.25,`music swells ${before-db(curve[Math.round(t*200)])} dB at ${t}s`);
+  assert.ok(db(curve[Math.round(4.65*200)])<2,'a long pause must still allow a smooth music return');
+});
+
+test('bridging speech pauses preserves intentional zero-reduction overrides',()=>{
+  const curve=build([{start:.5,end:3.5},{start:2,end:2.6,reductionDb:0}],{...settings,lookAheadMs:100},5,200,profile());
+  assert.ok(db(curve[490])<7,'an explicit zero override must not be filled as an automatic speech pause');
+});
